@@ -1,0 +1,66 @@
+%include lhs2TeX.fmt
+
+%format (at x) = "@" x
+
+%if style == poly
+
+% first some stuff specific to this paper
+%format up = "\uparrow"
+%format f_up
+%format mapF_up
+%format e_1
+%format e_2
+%format =-> = "\mapsto"
+
+
+%format !! = "\mathop{}\tick\tick"
+%subst conid a = "\id{" a "}"
+%subst varid a = "\id{" a "}"
+%subst keyword a = "\keyword{" a "}"
+%format ^^ = "\;"
+%format ## = "\!"
+%format . = ".\;"
+%format forall = "\forall"
+%format com = "\text{-}\text{-}"
+%format bang = "!"
+%format family = "\keyword{family}"
+%format dollar = $
+%format /\ = "\Lambda"
+%format |> = "\triangleright"
+%format pi = "\Pi"
+%format tau = "\tau"
+%format sigma = "\sigma"
+%format alpha = "\alpha"
+%format beta = "\beta"
+%format Type = "\ottkw{Type}"
+%format <$> = "\mathop{{\langle}{\$}{\rangle}}"
+%format <*> = "\mathop{{\langle}{*}{\rangle}}"
+%format ^ = "\string^\hspace{-.2ex}"
+
+% suppress some built-in formatting of lhs2TeX:
+%format not = "\id{not}"
+%format == = "\mathop{==}"
+%format /= = "\mathop{{/}{=}}"
+%format && = "\mathop{\&\&}"
+
+%else
+%format com = --
+%format dollar = $
+%format begin_comment = "{-"
+%format end_comment = "-}"
+
+\begin{code}
+{-# LANGUAGE GADTs, DataKinds, TypeOperators, PolyKinds, EmptyCase,
+             TypeFamilies, CPP, ConstraintKinds, RankNTypes,
+	     StandaloneDeriving, ScopedTypeVariables,
+	     MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances,
+	     UndecidableInstances, TemplateHaskell, TypeInType,
+	     AllowAmbiguousTypes, TypeApplications, FlexibleContexts,
+	     RebindableSyntax, OverloadedStrings, PatternSynonyms #-}
+{-# OPTIONS_GHC -Wall -Wno-unused-imports
+                      -Wno-name-shadowing
+		      -Wno-redundant-constraints
+		      -Wno-missing-signatures #-}
+\end{code}
+
+%endif
