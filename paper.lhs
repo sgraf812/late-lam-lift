@@ -2,6 +2,9 @@
 
 %include custom.fmt
 
+%\usepackage{mathpazo}
+%\usepackage{utopia}
+%\usepackage{lmodern}
 \usepackage[dvipsnames]{xcolor}
 \usepackage{xspace}
 \usepackage{enumitem}
@@ -15,7 +18,7 @@
 
 % Introducing lifting criteria with a running resumable counter
 \newcounter{critCounter}
-\newenvironment{introducecrit}{\begin{enumerate}\setcounter{enumi}{\value{critCounter}}}{\setcounter{critCounter}{\value{enumi}}\end{enumerate}}
+\newenvironment{introducecrit}{\begin{enumerate}[label=\textbf{(C\arabic*)},ref=(C\arabic*)]\setcounter{enumi}{\value{critCounter}}}{\setcounter{critCounter}{\value{enumi}}\end{enumerate}}
 
 \begin{document}
 
@@ -82,10 +85,10 @@ let g = [x y] \d -> f_up x y d d + x
 in g 5
 \end{code}
 
-Just counting the number of variables occurring in closures for a moment, the effect of \ref{s1} saved us two slots. At the same time, \ref{s3} removes |f| from |g|'s closure (no need to close over the top-level |f_up|), while simultaneously  enlarging it with |f|'s former free variable |y|. The new occurrence of |x| doesn't contribute to closure growth, because it already occurred in |g| prior to lifting. The net result is a reduction of two slots, so  lifting |f| seems worthwhile. In general:
+Just counting the number of variables occurring in closures, the effect of \ref{s1} saved us two slots. At the same time, \ref{s3} removes |f| from |g|'s closure (no need to close over the top-level |f_up|), while simultaneously  enlarging it with |f|'s former free variable |y|. The new occurrence of |x| doesn't contribute to closure growth, because it already occurred in |g| prior to lifting. The net result is a reduction of two slots, so  lifting |f| seems worthwhile. In general:
 
 \begin{introducecrit}
-  \item Don't lift a binding when doing so would increase closure allocation
+  \item \label{h:alloc} Don't lift a binding when doing so would increase closure allocation
 \end{introducecrit}
 
 Estimation of closure growth is crucial to identifying beneficial lifting opportunities. We discuss this further in \ref{ssec:cg}.
@@ -117,11 +120,13 @@ in mapF_up f [1, 2, 3]
   \item Don't lift a binding when doing so would turn known calls into unknown calls
 \end{introducecrit}
 
-\paragraph{Slow call patterns.} \todo{Align this with the previous paragraph} GHC employs the eval/apply model \cite{fastcurry} for translating function calls. Unknown function calls are lowered as calls to generic apply functions, which are specialised for specific argument patterns, \eg varying on the number of accepted arguments. If there is no matching generic apply function for the given argument pattern, the call is split up into a succession of multiple generic apply calls, allocating partial applications for each but the last generic apply call. Thus, we want to avoid turning slow calls into such \emph{very slow} calls.
-
-\begin{introducecrit}
-  \item Don't lift a binding when doing so would turn a slow unknown call into a very slow unknown call \todo{call these fast and slow unknown calls instead? Easily confused with fast and slow entrypoints, which are related, but different}
-\end{introducecrit}
+% These kind of slow calls can never actually occur, because we lift only known functions.
+%
+% \paragraph{Slow call patterns.} \todo{Align this with the previous paragraph} GHC employs the eval/apply model \cite{fastcurry} for translating function calls. Unknown function calls are lowered as calls to generic apply functions, which are specialised for specific argument patterns, \eg varying on the number of accepted arguments. If there is no matching generic apply function for the given argument pattern, the call is split up into a succession of multiple generic apply calls, allocating partial applications for each but the last generic apply call. Thus, we want to avoid turning slow calls into such \emph{very slow} calls.
+% 
+% \begin{introducecrit}
+%   \item Don't lift a binding when doing so would turn a slow unknown call into a very slow unknown call \todo{call these fast and slow unknown calls instead? Easily confused with fast and slow entrypoints, which are related, but different}
+% \end{introducecrit}
 
 \paragraph{Undersaturated calls.} When GHC spots an undersaturated call, it arranges allocation of a partial application that closes over the supplied arguments. Pay attention to the call to |f| in the following example:
 
@@ -148,5 +153,20 @@ The call to |f_up| will still allocate a partial application, with the only diff
 \begin{introducecrit}
   \item Don't lift a binding that is updatable or a constructor application
 \end{introducecrit}
+
+\subsection{Estimating Closure Growth}
+\label{ssec:cg}
+
+Of the criterions above, \ref{h:alloc} is the most important for reliable performance gains. It's also the most sophisticated, because it entails estimating closure growth.
+
+Let's revisit the example from above:
+
+\begin{code}
+let f = [x y] \a b -> ...
+    g = [f x] \d -> f d d + x
+in g 5
+\end{code}
+
+Will lifting 
 
 \end{document}
