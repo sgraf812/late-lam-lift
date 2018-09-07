@@ -1,0 +1,8 @@
+#! /usr/bin/env bash
+
+set -e
+
+PATH=$(locate lhs2TeX | head -n1 | xargs dirname):$PATH
+make -s || (echo "Could not build the paper! Aborting commit." && exit 1)
+
+git add paper.pdf
