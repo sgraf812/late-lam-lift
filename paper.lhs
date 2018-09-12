@@ -9,6 +9,7 @@
 \usepackage{xspace}
 \usepackage{enumitem}
 \usepackage{hyperref}
+\usepackage{csquotes}
 \hypersetup{pdfborder={0 0 0}}
 
 \newcommand{\keyword}[1]{\textsf{\textbf{#1}}}
@@ -38,6 +39,8 @@
 \section{Introduction}
 
 \section{Transformation}
+
+
 
 \section{When to lift} % Or: Analysis?
 
@@ -167,6 +170,50 @@ let f = [x y] \a b -> ...
 in g 5
 \end{code}
 
-Will lifting 
+We concluded that lifting |f| would be beneficial, saving us allocation of one free variable slot.
+There are two effects at play here.
+Not having to allocate the closure of |f| due to \ref{s1} always leads to a one-time benefit.
+Simultaneously, each closure occurrence of |f| would be replaced by its referenced free variables.
+Removing |f| leads to a saving of one slot per closure, but the free variables |x| and |y| each occupy a closure slots in turn.
+Of these, only |y| really contributes to closure growth, because |x| already occurred in the single remaining closure of |g|.
+
+This phenomenon is amplified whenever allocation happens under a multi-shot lambda, as the following example demonstrates:
+
+\begin{code}
+let f = [x y] \a b -> ...
+    g = [f x] \d ->
+      let h = [f] \e -> f e e
+      in h d
+in g 1 + g 2 + g 3
+\end{code}
+
+Is it still beneficial to lift |f|?
+Following our reasoning, we still save two slots from |f|'s closure, the closure of |g| doesn't grow and the closure |h| grows by one.
+We conclude that lifting |f| saves us one closure slot.
+But that's nonsense!
+Since |g| is called thrice, the closure for |h| also gets allocated three times relative to single allocations for the closures of |f| and |g|.
+
+In general, |h| might be occuring inside a recursive function, for which we can't reliably estimate how many times its closure will be allocated.
+Disallowing to lift any binding which is called inside a closure under such a multi-shot lambda is conservative, but rules out worthwhile cases like this:
+
+\begin{code}
+let f = [x y] \a b -> ...
+    g = [f x y] \d ->
+      let h_1 = [f] \e -> f e e
+          h_2 = [f x y] \e -> f e e + x + y
+      in h_1 d + h_2 d
+in g 1 + g 2 + g 3
+\end{code}
+
+Here, the closure of |h_1| grows by one, whereas that of |h_2| shrinks by one, cancelling each other out.
+We express this in our cost model by an infinite closure growth whenever there was any positive closure growth under a multi-shot lambda.
+
+One final remark regarding analysis performance.
+\todo{equation} operates directly on STG expressions.
+This means the cost function has to traverse whole syntax trees \emph{for every lifting decision}.
+
+Instead, our implementation first abstracts the syntax tree into a \emph{skeleton}, retaining only the information necessary for our analysis.
+In particular, this includes allocated closures and their free variables, but also occurrences of multi-shot lambda abstractions.
+Additionally, there are the usual \enquote{glue operators}, such as sequence (\eg the case scrutinee is evaluated whenever one of the case alternatives is), choice (\eg one of the case alternatives is evaluated \emph{mutually exclusively}) and an identity (\eg literals don't allocate).
 
 \end{document}

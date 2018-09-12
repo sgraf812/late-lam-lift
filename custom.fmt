@@ -10,6 +10,8 @@
 %format mapF_up
 %format e_1
 %format e_2
+%format h_1
+%format h_2
 %format =-> = "\mapsto"
 
 
