@@ -11,6 +11,9 @@
 \usepackage{hyperref}
 \usepackage{csquotes}
 \hypersetup{pdfborder={0 0 0}}
+\usepackage{biblatex}
+
+\addbibresource{references.bib}
 
 \newcommand{\keyword}[1]{\textsf{\textbf{#1}}}
 \newcommand{\id}[1]{\textsf{\textsl{#1}}}
@@ -40,7 +43,7 @@
 
 \section{Transformation}
 
-
+Lambda lifting has been known for a long time \cite{Johnsson1985}
 
 \section{When to lift} % Or: Analysis?
 
@@ -215,5 +218,7 @@ This means the cost function has to traverse whole syntax trees \emph{for every 
 Instead, our implementation first abstracts the syntax tree into a \emph{skeleton}, retaining only the information necessary for our analysis.
 In particular, this includes allocated closures and their free variables, but also occurrences of multi-shot lambda abstractions.
 Additionally, there are the usual \enquote{glue operators}, such as sequence (\eg the case scrutinee is evaluated whenever one of the case alternatives is), choice (\eg one of the case alternatives is evaluated \emph{mutually exclusively}) and an identity (\eg literals don't allocate).
+
+\printbibliography
 
 \end{document}

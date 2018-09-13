@@ -1,14 +1,17 @@
 BUILD=build
 BASE=paper
-DEPS=$(shell find . -name "*.tex") $(shell find . -name "*.sty")
 
 default: $(BASE).pdf
+
+$(BUILD)/references.bib: references.bib
+	mkdir -p $(BUILD)
+	cp references.bib $(BUILD)/references.bib
 
 $(BUILD)/$(BASE).tex: $(BASE).lhs custom.fmt
 	mkdir -p $(BUILD)
 	lhs2TeX --poly $< > $@
 
-$(BUILD)/$(BASE).pdf: $(BUILD)/$(BASE).tex $(DEPS)
+$(BUILD)/$(BASE).pdf: $(BUILD)/$(BASE).tex $(BUILD)/references.bib
 	mkdir -p $(BUILD)
 	TEXINPUTS=$(TEXINPUTS):style latexmk -f -pdf -jobname=build/$(BASE) -interaction=nonstopmode $<
 
