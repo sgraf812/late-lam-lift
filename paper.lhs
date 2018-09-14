@@ -5,6 +5,8 @@
 %\usepackage{mathpazo}
 %\usepackage{utopia}
 %\usepackage{lmodern}
+\usepackage{amsmath}
+\usepackage{mathtools}
 \usepackage[dvipsnames]{xcolor}
 \usepackage{xspace}
 \usepackage{enumitem}
@@ -19,6 +21,21 @@
 \newcommand{\id}[1]{\textsf{\textsl{#1}}}
 \newcommand{\todo}[1]{\textcolor{red}{TODO: #1}\PackageWarning{TODO:}{#1!}}
 \newcommand{\eg}{e.g.\@@\xspace}
+
+% https://tex.stackexchange.com/a/268475/52414
+\newlength\stextwidth
+\newcommand\makesamewidth[3][c]{%
+  \settowidth{\stextwidth}{#2}%
+    \makebox[\stextwidth][#1]{#3}%
+}
+\newlength\smathtextwidth
+\newcommand\mathmakesamewidth[3][c]{%
+  \settowidth{\smathtextwidth}{$#2$}%
+    \mathmakebox[\smathtextwidth][#1]{#3}%
+}
+\newcommand\mathwithin[2]{%
+  \mathmakesamewidth[c]{#1}{#2}
+}
 
 % Introducing lifting criteria with a running resumable counter
 \newcounter{critCounter}
@@ -43,7 +60,39 @@
 
 \section{Transformation}
 
-Lambda lifting has been known for a long time \cite{Johnsson1985}
+Lambda lifting is a well-known technique \parencite{Johnsson1985}.
+Although Johnsson's original algorithm runs in wort-case cubic time relative to the size of the input program, \textcite{optimal-lift} gave an algorithm that runs in $\mathcal{O}(n^2)$.
+
+Our lambda lifting transformation is unique in that it operates on terms of the \emph{spineless tagless G-machine} (STG) \parencite{stg} as currently implemented in GHC. 
+This means we can assume that the nesting structure of bindings corresponds to the condensation (the directed-acyclic graph of strongly-connected components) of the dependency graph. \todo{less detail? less language?}
+Additionally, every binding in a (recursive) |let| expression is annotated with the free variables it closes over.
+The combination of both properties allows efficient construction of the set of \emph{required} \todo{any better names? former free variables, abstraction variables...} variables set for a total complexity of $\mathcal{O}(n^2)$, as we shall see.
+
+\subsection{Syntax}
+
+Although STG is but a tiny language compared to typical surface languages such as Haskell, its definition in \textcite{fastcurry} still contains much detail irrelevant to lambda lifting.
+As can be see in \ref{fig:syntax}, we therefore adopt a simple lambda calculus with |let| bindings as in \textcite{Johnsson1985}, with a few distinctive features:
+
+\begin{enumerate}
+\item |let| bindings are annotated with the free variables they close over
+\item Arguments in an application expression are all atomic; variable references, that is
+\item Every lambda abstraction is the right-hand side of a |let| binding
+\item All applications are fully saturated
+\end{enumerate}
+
+\begin{figure}[h]
+\begin{alignat*}{4}
+\text{Variables} &\quad& f,x,y &&&&\quad& \\
+\text{Expressions} && e & {}\Coloneqq{} && x && \text{Variable} \\
+            &&   & \mathwithin{{}\Coloneqq{}}{\mid} && f\; x_1...\,x_n && \text{Saturated function call} \\
+            &&   & \mathwithin{{}\Coloneqq{}}{\mid} && \keyword{let} && \text{Recursive \keyword{let}} \\
+            &&   &&& \quad \overline{f_i \mathrel{=} [\mskip1.5mu x_{i,1}, ..., x_{i,n}\mskip1.5mu] \lambda \mskip1.5mu y_{i,1}\;...\;y_{i,m}\to e_i} && \\
+            &&   &&& \keyword{in}\;e && \\
+\end{alignat*}
+\caption{A simple untyped lambda calculus}
+\label{fig:syntax}
+\end{figure}
+
 
 \section{When to lift} % Or: Analysis?
 
@@ -113,7 +162,7 @@ let f = [] \x -> 2*x
 in mapF [1, 2, 3]
 \end{code}
 
-Here, there is a \emph{known call} to |f| in |mapF| that can be lowered as a direct jump to a static address \cite{fastcurry}.  Lifting |mapF| (but not |f|) yields the following program:
+Here, there is a \emph{known call} to |f| in |mapF| that can be lowered as a direct jump to a static address \parencite{fastcurry}.  Lifting |mapF| (but not |f|) yields the following program:
 
 \begin{code}
 mapF_up = \f xs -> ... f x ...;
