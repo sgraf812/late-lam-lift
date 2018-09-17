@@ -11,11 +11,12 @@
 \usepackage{xspace}
 \usepackage{enumitem}
 \usepackage{hyperref}
+\usepackage{cleveref}
 \usepackage{csquotes}
 \hypersetup{pdfborder={0 0 0}}
-\usepackage{biblatex}
+\usepackage[backend=bibtex8]{biblatex}
 
-\addbibresource{references.bib}
+\bibliography{references.bib}
 
 \newcommand{\keyword}[1]{\textsf{\textbf{#1}}}
 \newcommand{\id}[1]{\textsf{\textsl{#1}}}
@@ -63,19 +64,19 @@
 Lambda lifting is a well-known technique \parencite{Johnsson1985}.
 Although Johnsson's original algorithm runs in wort-case cubic time relative to the size of the input program, \textcite{optimal-lift} gave an algorithm that runs in $\mathcal{O}(n^2)$.
 
-Our lambda lifting transformation is unique in that it operates on terms of the \emph{spineless tagless G-machine} (STG) \parencite{stg} as currently implemented in GHC. 
-This means we can assume that the nesting structure of bindings corresponds to the condensation (the directed-acyclic graph of strongly-connected components) of the dependency graph. \todo{less detail? less language?}
+Our lambda lifting transformation is unique in that it operates on terms of the \emph{spineless tagless G-machine} (STG) \parencite{stg} as currently implemented \parencite{fastcurry} in GHC.
+This means we can assume that the nesting structure of bindings corresponds to the condensation (the directed acyclic graph of strongly connected components) of the dependency graph. \todo{less detail? less language?}
 Additionally, every binding in a (recursive) |let| expression is annotated with the free variables it closes over.
-The combination of both properties allows efficient construction of the set of \emph{required} \todo{any better names? former free variables, abstraction variables...} variables set for a total complexity of $\mathcal{O}(n^2)$, as we shall see.
+The combination of both properties allows efficient construction of the set of \emph{required} \todo{any better names? former free variables, abstraction variables...} variables for a total complexity of $\mathcal{O}(n^2)$, as we shall see.
 
 \subsection{Syntax}
 
-Although STG is but a tiny language compared to typical surface languages such as Haskell, its definition in \textcite{fastcurry} still contains much detail irrelevant to lambda lifting.
-As can be see in \ref{fig:syntax}, we therefore adopt a simple lambda calculus with |let| bindings as in \textcite{Johnsson1985}, with a few distinctive features:
+Although STG is but a tiny language compared to typical surface languages such as Haskell, its definition \parencite{fastcurry} still contains much detail irrelevant to lambda lifting.
+As can be seen in \cref{fig:syntax}, we therefore adopt a simple lambda calculus with |let| bindings as in \textcite{Johnsson1985}, with a few STG-inspired features:
 
 \begin{enumerate}
 \item |let| bindings are annotated with the free variables they close over
-\item Arguments in an application expression are all atomic; variable references, that is
+\item Arguments in an application expression are all atomic (\eg variable references)
 \item Every lambda abstraction is the right-hand side of a |let| binding
 \item All applications are fully saturated
 \end{enumerate}
@@ -89,10 +90,9 @@ As can be see in \ref{fig:syntax}, we therefore adopt a simple lambda calculus w
             &&   &&& \quad \overline{f_i \mathrel{=} [\mskip1.5mu x_{i,1}, ..., x_{i,n}\mskip1.5mu] \lambda \mskip1.5mu y_{i,1}\;...\;y_{i,m}\to e_i} && \\
             &&   &&& \keyword{in}\;e && \\
 \end{alignat*}
-\caption{A simple untyped lambda calculus}
+\caption{An STG-like untyped lambda calculus}
 \label{fig:syntax}
 \end{figure}
-
 
 \section{When to lift} % Or: Analysis?
 
