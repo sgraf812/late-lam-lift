@@ -18,10 +18,32 @@
 
 \bibliography{references.bib}
 
-\newcommand{\keyword}[1]{\textsf{\textbf{#1}}}
-\newcommand{\id}[1]{\textsf{\textsl{#1}}}
 \newcommand{\todo}[1]{\textcolor{red}{TODO: #1}\PackageWarning{TODO:}{#1!}}
 \newcommand{\eg}{e.g.\@@\xspace}
+
+% Syntax
+\newcommand{\keyword}[1]{\textsf{\textbf{#1}}}
+\newcommand{\id}[1]{\textsf{\textsl{#1}}}
+\newcommand{\idx}{\id{x}}
+\newcommand{\idy}{\id{y}}
+\newcommand{\ide}{\id{e}}
+\newcommand{\idf}{\id{f}}
+\newcommand{\closure}[1]{[\mskip1.5mu #1 \mskip1.5mu]}
+\newcommand{\rhs}[3]{\closure{#1} \lambda #2 \to #3}
+\newcommand{\mkLets}[5]{\keyword{let}\;\overline{#1 \mathrel{=} \rhs{#2}{#3}{#4}}\; \keyword{in}\; #5}
+\newcommand{\mkLet}[5]{\keyword{let}\;#1 \mathrel{=} \rhs{#2}{#3}{#4}\; \keyword{in}\; #5}
+\newcommand{\sfop}[1]{\textsf{#1}\xspace}
+\newcommand{\fun}[1]{\textsf{#1}\xspace}
+\newcommand{\ty}[1]{\textsf{#1}\xspace}
+\newcommand{\lift}{\fun{lift}}
+\newcommand{\expander}{\ty{Expander}}
+\newcommand{\expr}{\ty{Expr}}
+\newcommand{\bindgr}{\ty{Bind}}
+\newcommand{\wrap}{\fun{wrap}}
+\newcommand{\subst}{\fun{subst}}
+\newcommand{\expand}{\fun{expand}}
+\newcommand{\dom}[1]{\sfop{dom}\,#1}
+\newcommand{\absids}{\alpha}
 
 % https://tex.stackexchange.com/a/268475/52414
 \newlength\stextwidth
@@ -67,7 +89,7 @@ Although Johnsson's original algorithm runs in wort-case cubic time relative to 
 Our lambda lifting transformation is unique in that it operates on terms of the \emph{spineless tagless G-machine} (STG) \parencite{stg} as currently implemented \parencite{fastcurry} in GHC.
 This means we can assume that the nesting structure of bindings corresponds to the condensation (the directed acyclic graph of strongly connected components) of the dependency graph. \todo{less detail? less language?}
 Additionally, every binding in a (recursive) |let| expression is annotated with the free variables it closes over.
-The combination of both properties allows efficient construction of the set of \emph{required} \todo{any better names? former free variables, abstraction variables...} variables for a total complexity of $\mathcal{O}(n^2)$, as we shall see.
+The combination of both properties allows efficient construction of the set of \emph{required} \todo{any better names? former free variables, abstraction variables\ldots} variables for a total complexity of $\mathcal{O}(n^2)$, as we shall see.
 
 \subsection{Syntax}
 
@@ -85,16 +107,71 @@ As can be seen in \cref{fig:syntax}, we therefore adopt a simple lambda calculus
 \begin{alignat*}{4}
 \text{Variables} &\quad& f,x,y &&&&\quad& \\
 \text{Expressions} && e & {}\Coloneqq{} && x && \text{Variable} \\
-            &&   & \mathwithin{{}\Coloneqq{}}{\mid} && f\; x_1...\,x_n && \text{Saturated function call} \\
-            &&   & \mathwithin{{}\Coloneqq{}}{\mid} && \keyword{let} && \text{Recursive \keyword{let}} \\
-            &&   &&& \quad \overline{f_i \mathrel{=} [\mskip1.5mu x_{i,1}, ..., x_{i,n}\mskip1.5mu] \lambda \mskip1.5mu y_{i,1}\;...\;y_{i,m}\to e_i} && \\
-            &&   &&& \keyword{in}\;e && \\
+            &&   & \mathwithin{{}\Coloneqq{}}{\mid} && f\; x_1\ldots\,x_n && \text{Saturated function call} \\
+            &&   & \mathwithin{{}\Coloneqq{}}{\mid} && \keyword{let}\; b\; \keyword{in}\; e && \text{Recursive \keyword{let}} \\
+\text{Bindings} && b & {}\Coloneqq{} && \overline{f_i \mathrel{=} [\mskip1.5mu x_{i,1} \ldots\, x_{i,n_i}\mskip1.5mu] \lambda \mskip1.5mu y_{i,1} \ldots\,y_{i,m_i}\to e_i} && \\
 \end{alignat*}
 \caption{An STG-like untyped lambda calculus}
 \label{fig:syntax}
 \end{figure}
 
+\subsection{Algorithm}
+
+Our implementation extends the original formulation of \textcite{Johnsson1985} to STG terms, by exploiting and maintaining closure annotations.
+We will recap our variant of the algorithm in its whole here.
+It is assumed that all variables have unique names and that there is a sufficient supply of fresh names from which to draw.
+
+We'll define a function \lift recursively over the term structure. This is its signature:
+
+\[
+\lift_{\mathunderscore}(\mathunderscore) \colon \expander \to \expr \to \expr \times \bindgr 
+\]
+
+As first argument \lift takes an \expander, which is a partial function from lifted binders to the set of required variables.
+These are the additional variables we have to pass at call sites after lifting.
+The expander is extended every time we decide to lambda lift a binding.
+It plays a similar role as the $E_f$ set in \textcite{Johnsson1985}.
+We write $\dom{\absids}$ for the domain of the expander $\absids$ and the notation $\absids[\idx \mapsto S]$ to extend the expander function, so that the result maps $\idx$ to $S$ and all other identifiers by delegating to $\absids$.
+
+The second argument is the expression that is to be lambda lifted.
+A call to \lift results in a pair of
+
+\begin{enumerate}
+\item An expression that no longer contains any bindings that were lifted to the top-level
+\item A binding group of the bindings that were lifted to the top-level
+\end{enumerate}
+
+\subsubsection{Variables}
+
+\begin{figure}
+\begin{alignat*}{2}
+&\lift(\idx) &=&
+  \begin{cases}
+    \idx,                       & \idx \notin \dom{\absids} \\
+    \idx\; \idy_1 \ldots \idy_n, & \absids(\idx) = \{ \idy_1, \ldots, \idy_n \} \\
+  \end{cases} \\
+&\lift(\idf\; \idx_1 \ldots \idx_n) &=& (\wrap(\idx_n) \circ \ldots \circ \wrap(\idx_1)\circ \lift)(\idf\; \subst(\idx_1) \ldots \subst(\idx_n)) \\
+&\wrap(\idx)(\ide) &=&
+  \begin{cases}
+    \ide,                       & \idx \notin \dom{\absids} \\
+    \mkLet{\subst(\idx)}{}{\idy_1 \ldots \idy_n}{\idx\; \idy_1 \ldots \idy_n}{\ide}, & \absids(\idx) = \{ \idy_1, \ldots, \idy_n \} \\
+  \end{cases} \\
+&\subst(\idx) &=&
+  \begin{cases}
+    \idx,                        & \idx \notin \dom{\absids} \\
+    \idx',                       & \idx' \text{ fresh} \\
+  \end{cases} \\
+&\lift(\mkLets{\idf_i}{\idx_{i,1} \ldots \idx_{i,n_i}}{\idy_{i,1} \ldots \idy_{i,m_i}}{\ide_i}{\ide}) &=&
+  \begin{cases}
+    \idx,                       & \idx \notin \dom{\absids} \\
+    \idx\; \idy_1 \ldots \idy_n, & \absids(\idx) = \{ \idy_1, \ldots, \idy_n \} \\
+  \end{cases} \\
+\end{alignat*}
+\todo{The application rule is unnecessarily complicated because we support occurrences of lifted binders in argument position. Lifting such binders isn't worthwhile anyway (see \cref{sec:analysis}). Maybe just say that we don't allow it?}
+\end{figure}
+
 \section{When to lift} % Or: Analysis?
+\label{sec:analysis}
 
 Lambda lifting a binding to top-level is always \todo{except when we would replace a parameter occurrence by an application} a sound transformation.
 The challenge is in identifying \emph{when} it is beneficial to do so.
@@ -127,7 +204,7 @@ We now ascribe operational symptoms to combinations of syntactic effects. These 
 \paragraph{Closure growth.} \ref{s1} means we don't allocate a closure on the heap for the |let| binding. On the other hand, \ref{s3} might increase or decrease heap allocation. Consider this example:
 
 \begin{code}
-let f = [x y] \a b -> ...
+let f = [x y] \a b -> \ldots
     g = [f x] \d -> f d d + x
 in g 5
 \end{code}
@@ -135,7 +212,7 @@ in g 5
 Should |f| be lifted? It's hard to say without actually seeing the lifted version:
 
 \begin{code}
-f_up = \x y a b -> ...;
+f_up = \x y a b -> \ldots;
 let g = [x y] \d -> f_up x y d d + x
 in g 5
 \end{code}
@@ -158,14 +235,14 @@ Estimation of closure growth is crucial to identifying beneficial lifting opport
 
 \begin{code}
 let f = [] \x -> 2*x
-    mapF = [f] \xs -> ... f x ...
+    mapF = [f] \xs -> \ldots f x \ldots
 in mapF [1, 2, 3]
 \end{code}
 
 Here, there is a \emph{known call} to |f| in |mapF| that can be lowered as a direct jump to a static address \parencite{fastcurry}.  Lifting |mapF| (but not |f|) yields the following program:
 
 \begin{code}
-mapF_up = \f xs -> ... f x ...;
+mapF_up = \f xs -> \ldots f x \ldots;
 let f = [] \x -> 2*x
 in mapF_up f [1, 2, 3]
 \end{code}
@@ -217,7 +294,7 @@ Of the criterions above, \ref{h:alloc} is the most important for reliable perfor
 Let's revisit the example from above:
 
 \begin{code}
-let f = [x y] \a b -> ...
+let f = [x y] \a b -> \ldots
     g = [f x] \d -> f d d + x
 in g 5
 \end{code}
@@ -232,7 +309,7 @@ Of these, only |y| really contributes to closure growth, because |x| already occ
 This phenomenon is amplified whenever allocation happens under a multi-shot lambda, as the following example demonstrates:
 
 \begin{code}
-let f = [x y] \a b -> ...
+let f = [x y] \a b -> \ldots
     g = [f x] \d ->
       let h = [f] \e -> f e e
       in h d
@@ -249,7 +326,7 @@ In general, |h| might be occuring inside a recursive function, for which we can'
 Disallowing to lift any binding which is called inside a closure under such a multi-shot lambda is conservative, but rules out worthwhile cases like this:
 
 \begin{code}
-let f = [x y] \a b -> ...
+let f = [x y] \a b -> \ldots
     g = [f x y] \d ->
       let h_1 = [f] \e -> f e e
           h_2 = [f x y] \e -> f e e + x + y
