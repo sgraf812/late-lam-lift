@@ -26,22 +26,36 @@
 \newcommand{\id}[1]{\textsf{\textsl{#1}}}
 \newcommand{\idx}{\id{x}}
 \newcommand{\idy}{\id{y}}
+\newcommand{\idz}{\id{z}}
+\newcommand{\idbs}{\id{bs}}
+\newcommand{\idlbs}{\id{lbs}}
 \newcommand{\ide}{\id{e}}
 \newcommand{\idf}{\id{f}}
 \newcommand{\closure}[1]{[\mskip1.5mu #1 \mskip1.5mu]}
 \newcommand{\rhs}[3]{\closure{#1} \lambda #2 \to #3}
-\newcommand{\mkLets}[5]{\keyword{let}\;\overline{#1 \mathrel{=} \rhs{#2}{#3}{#4}}\; \keyword{in}\; #5}
-\newcommand{\mkLet}[5]{\keyword{let}\;#1 \mathrel{=} \rhs{#2}{#3}{#4}\; \keyword{in}\; #5}
+\newcommand{\mkBind}[4]{#1 \mathrel{=} \rhs{#2}{#3}{#4}}
+\newcommand{\mkBindr}[4]{\overline{\mkBind{#1}{#2}{#3}{#4}}}
+\newcommand{\mkLetb}[2]{\keyword{let}\; #1\; \keyword{in}\; #2}
+\newcommand{\mkLet}[5]{\mkLetb{\mkBind{#1}{#2}{#3}{#4}}{#5}}
+\newcommand{\mkLetr}[5]{\mkLetb{\mkBindr{#1}{#2}{#3}{#4}}{#5}}
 \newcommand{\sfop}[1]{\textsf{#1}\xspace}
 \newcommand{\fun}[1]{\textsf{#1}\xspace}
 \newcommand{\ty}[1]{\textsf{#1}\xspace}
+\newcommand{\idiom}[1]{\left\llbracket#1\right\rrbracket}
+\newcommand{\writer}[2]{\mathcal{W}_#1\,#2}
+\newcommand{\eff}[1]{\left\langle#1\right\rangle}
 \newcommand{\lift}{\fun{lift}}
+\newcommand{\liftv}{\fun{lift-var}}
+\newcommand{\liftb}{\fun{lift-bind}}
+\newcommand{\liftl}{\fun{lambda-lift}}
+\newcommand{\expand}{\fun{expand-closures}}
+\newcommand{\decide}{\fun{decide-lift}}
+\newcommand{\recurse}{\fun{recurse}}
 \newcommand{\expander}{\ty{Expander}}
 \newcommand{\expr}{\ty{Expr}}
 \newcommand{\bindgr}{\ty{Bind}}
+\newcommand{\emptybind}{\varepsilon}
 \newcommand{\wrap}{\fun{wrap}}
-\newcommand{\subst}{\fun{subst}}
-\newcommand{\expand}{\fun{expand}}
 \newcommand{\dom}[1]{\sfop{dom}\,#1}
 \newcommand{\absids}{\alpha}
 
@@ -97,18 +111,17 @@ Although STG is but a tiny language compared to typical surface languages such a
 As can be seen in \cref{fig:syntax}, we therefore adopt a simple lambda calculus with |let| bindings as in \textcite{Johnsson1985}, with a few STG-inspired features:
 
 \begin{enumerate}
-\item |let| bindings are annotated with the free variables they close over
-\item Arguments in an application expression are all atomic (\eg variable references)
+\item |let| bindings are annotated with the non-top-level free variables they close over
 \item Every lambda abstraction is the right-hand side of a |let| binding
-\item All applications are fully saturated
+\item Arguments and heads in an application expression are all atomic (\eg variable references)
 \end{enumerate}
 
 \begin{figure}[h]
 \begin{alignat*}{4}
 \text{Variables} &\quad& f,x,y &&&&\quad& \\
 \text{Expressions} && e & {}\Coloneqq{} && x && \text{Variable} \\
-            &&   & \mathwithin{{}\Coloneqq{}}{\mid} && f\; x_1\ldots\,x_n && \text{Saturated function call} \\
-            &&   & \mathwithin{{}\Coloneqq{}}{\mid} && \keyword{let}\; b\; \keyword{in}\; e && \text{Recursive \keyword{let}} \\
+            &&   & \mathwithin{{}\Coloneqq{}}{\mid} && f\; x_1\ldots\,x_n && \text{Function call} \\
+            &&   & \mathwithin{{}\Coloneqq{}}{\mid} && \mkLetb{b}{e} && \text{Recursive \keyword{let}} \\
 \text{Bindings} && b & {}\Coloneqq{} && \overline{f_i \mathrel{=} [\mskip1.5mu x_{i,1} \ldots\, x_{i,n_i}\mskip1.5mu] \lambda \mskip1.5mu y_{i,1} \ldots\,y_{i,m_i}\to e_i} && \\
 \end{alignat*}
 \caption{An STG-like untyped lambda calculus}
@@ -123,8 +136,10 @@ It is assumed that all variables have unique names and that there is a sufficien
 
 We'll define a function \lift recursively over the term structure. This is its signature:
 
+\todo{Why not use plain Haskell?}
+
 \[
-\lift_{\mathunderscore}(\mathunderscore) \colon \expander \to \expr \to \expr \times \bindgr 
+\lift_{\mathunderscore}(\mathunderscore) \colon \expander \to \expr \to \writer{\bindgr}{\expr}
 \]
 
 As first argument \lift takes an \expander, which is a partial function from lifted binders to the set of required variables.
@@ -143,32 +158,79 @@ A call to \lift results in a pair of
 
 \subsubsection{Variables}
 
-\begin{figure}
+Let's begin the variable case.
+
 \begin{alignat*}{2}
-&\lift(\idx) &=&
+&\lift_\absids(\idx) &{}={}&
   \begin{cases}
-    \idx,                       & \idx \notin \dom{\absids} \\
-    \idx\; \idy_1 \ldots \idy_n, & \absids(\idx) = \{ \idy_1, \ldots, \idy_n \} \\
-  \end{cases} \\
-&\lift(\idf\; \idx_1 \ldots \idx_n) &=& (\wrap(\idx_n) \circ \ldots \circ \wrap(\idx_1)\circ \lift)(\idf\; \subst(\idx_1) \ldots \subst(\idx_n)) \\
-&\wrap(\idx)(\ide) &=&
-  \begin{cases}
-    \ide,                       & \idx \notin \dom{\absids} \\
-    \mkLet{\subst(\idx)}{}{\idy_1 \ldots \idy_n}{\idx\; \idy_1 \ldots \idy_n}{\ide}, & \absids(\idx) = \{ \idy_1, \ldots, \idy_n \} \\
-  \end{cases} \\
-&\subst(\idx) &=&
-  \begin{cases}
-    \idx,                        & \idx \notin \dom{\absids} \\
-    \idx',                       & \idx' \text{ fresh} \\
-  \end{cases} \\
-&\lift(\mkLets{\idf_i}{\idx_{i,1} \ldots \idx_{i,n_i}}{\idy_{i,1} \ldots \idy_{i,m_i}}{\ide_i}{\ide}) &=&
-  \begin{cases}
-    \idx,                       & \idx \notin \dom{\absids} \\
-    \idx\; \idy_1 \ldots \idy_n, & \absids(\idx) = \{ \idy_1, \ldots, \idy_n \} \\
+    \idiom{\idx},                        & \idx \notin \dom{\absids} \\
+    \idiom{\idx\; \idy_1 \ldots \idy_n}, & \absids(\idx) = \{ \idy_1, \ldots, \idy_n \}
   \end{cases} \\
 \end{alignat*}
+
+In the helper \liftv, we check if the variable was lifted to top-level by looking it up in the supplied expander mapping $\absids$ and if so, we apply it to its newly required variables.
+There are no bindings occuring that could be lambda lifted, hence the main \lift function returns an empty binding group.
+
+\subsubsection{Applications}
+
+Handling function application correctly is a little subtle, because only variables are allowed in argument position.
+When such an argument variable's binding is lifted to top-level, it turns into a non-atomic application expression, violating the STG invariants.
+Each such application must be bound to an enclosing |let| binding
+\footnote{To keep the specification reasonably simple, we also do so for non-lifted identifiers and assuming that the compiler can do the trivial rewrite $\mkLet{\idy}{}{}{\idx}{E[\idy]} \Longrightarrow E[\idx]$ for us.}:
+
 \todo{The application rule is unnecessarily complicated because we support occurrences of lifted binders in argument position. Lifting such binders isn't worthwhile anyway (see \cref{sec:analysis}). Maybe just say that we don't allow it?}
-\end{figure}
+
+\[
+\lift_\absids(\idf\; \idx_1 \ldots \idx_n) = \idiom{(\wrap_\absids(\idx_n) \circ \ldots \circ \wrap_\absids(\idx_1))(\eff{\lift_\absids(\idf)}\; \idx_1' \ldots \idx_n')} \\ \]
+
+The notation $\idx'$ just chooses a fresh name for $\idx$ in a consistent fashion.
+Notably, there is no recursive call to \lift, because all syntactic subentities are variables.
+This includes the application head \idf, which is handled by a call to \liftv.
+Hence there are also no lifted bindings to account for.
+Syntactically heavy |let| wrapping is outsourced into a helper function \wrap:
+
+\[
+\wrap_\absids(\idx)(\ide) =
+  \begin{cases}
+    \mkLet{\idx'}{}{}{\idx}{\ide}, & \idx \notin \dom{\absids} \\
+    \mkLet{\idx'}{}{\idy_1 \ldots \idy_n}{\idx\; \idy_1 \ldots \idy_n}{\ide}, & \absids(\idx) = \{ \idy_1, \ldots, \idy_n \} \\
+  \end{cases} \\
+\]
+
+\subsubsection{Let Bindings}
+
+Hardly surprising, the meat of the transformation hides in the handling of |let| bindings.
+Assuming we 
+
+\[
+\lift_\absids(\mkLetb{\idbs}{\ide}) = (\recurse(\ide) \circ \decide_\absids \circ \expand_\absids)(\idbs)
+\]
+
+\begin{alignat*}{2}
+\expand_\absids(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idz_1 \ldots \idz_{m_i}}{\ide_i}) &&{}={}& \mkBindr{\idf_i}{\idy_1 \ldots \idy_{n'_i}}{\idz_1 \ldots \idz_{m_i}}{\ide_i} \\
+where\qquad &&& \\
+\{\idy_1\ldots \idy_{n_i}\} &&{}={}& \bigcup_{j=1}^{n'_i}
+  \begin{cases}
+    \idx_j, & \idx_j \notin \dom{\absids} \\
+    \absids(\idx_j), & \text{otherwise}
+  \end{cases}
+\end{alignat*}
+
+\begin{alignat*}{2}
+\decide_\absids(\idbs) &&{}={}&
+  \begin{cases}
+    (\emptybind,\absids',\liftl_{\absids'}(\idbs)), & \text{if \idbs\, should be lifted} \\
+    (\idbs, \absids, \emptybind), & \text{otherwise} \\
+  \end{cases} \\
+\absids' &&{}={}& \absids\left[\overline{\idf_i \mapsto \fun{fvs}(\idbs)}\right] \\
+\fun{fvs}(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idy_1 \ldots \idy_{m_i}}{\ide_i}) &&{}={}& \bigcup_i \{\idx_1, \ldots, \idx_{n_i} \} \setminus \overline{\idf_i} \\
+\liftl_\absids(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idy_1 \ldots \idy_{m_i}}{\ide_i}) &&{}={}& \mkBindr{\idf_i}{}{\absids(\idf_i)\; \idy_1 \ldots \idy_{m_i}}{\ide_i} \\
+\end{alignat*}
+
+\begin{alignat*}{2}
+\recurse(\ide)(\idbs, \absids, \idlbs) &&{}={}& \liftb_\absids(\idlbs) >\!\!>\!\!= \fun{note} >\!\!> \idiom{\mkLetb{\eff{\liftb_\absids(\idbs)}}{\eff{\lift_\absids(\ide)}}} \\
+\liftb_\absids(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idy_1 \ldots \idy_{m_i}}{\ide_i}) &&{}={}& \idiom{\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idy_1 \ldots \idy_{m_i}}{\eff{\lift_\absids(\ide_i)}}} \\
+\end{alignat*}
 
 \section{When to lift} % Or: Analysis?
 \label{sec:analysis}
