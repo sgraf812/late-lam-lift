@@ -20,7 +20,8 @@
 \bibliography{references.bib}
 
 \newcommand{\todo}[1]{\textcolor{red}{TODO: #1}\PackageWarning{TODO:}{#1!}}
-\newcommand{\eg}{e.g.\@@\xspace}
+\newcommand{\eg}{e.g.,\@@\xspace}
+\newcommand{\ie}{i.e.\@@\xspace}
 
 % Syntax
 \newcommand{\keyword}[1]{\textsf{\textbf{#1}}}
@@ -56,12 +57,20 @@
 \newcommand{\note}{\fun{note}}
 \newcommand{\fvs}{\fun{fvs}}
 \newcommand{\expander}{\ty{Expander}}
+\newcommand{\var}{\ty{Var}}
 \newcommand{\expr}{\ty{Expr}}
 \newcommand{\bindgr}{\ty{Bind}}
 \newcommand{\emptybind}{\varepsilon}
 \newcommand{\wrap}{\fun{wrap}}
 \newcommand{\dom}[1]{\sfop{dom}\,#1}
 \newcommand{\absids}{\alpha}
+\newcommand{\added}{\varphi^+}
+\newcommand{\removed}{\varphi^-}
+\newcommand{\cg}{\fun{closure-growth}}
+\newcommand{\growth}{\fun{growth}}
+\newcommand{\local}{\fun{local}}
+\newcommand{\zinf}{\mathbb{Z}_{\infty}}
+\newcommand{\card}[1]{\left\vert#1\right\vert}
 
 % https://tex.stackexchange.com/a/268475/52414
 \newlength\stextwidth
@@ -100,6 +109,7 @@
 \section{Introduction}
 
 \section{Transformation}
+\label{sec:trans}
 
 Lambda lifting is a well-known technique \parencite{Johnsson1985}.
 Although Johnsson's original algorithm runs in wort-case cubic time relative to the size of the input program, \textcite{optimal-lift} gave an algorithm that runs in $\mathcal{O}(n^2)$.
@@ -107,7 +117,7 @@ Although Johnsson's original algorithm runs in wort-case cubic time relative to 
 Our lambda lifting transformation is unique in that it operates on terms of the \emph{spineless tagless G-machine} (STG) \parencite{stg} as currently implemented \parencite{fastcurry} in GHC.
 This means we can assume that the nesting structure of bindings corresponds to the condensation (the directed acyclic graph of strongly connected components) of the dependency graph. \todo{less detail? less language?}
 Additionally, every binding in a (recursive) |let| expression is annotated with the free variables it closes over.
-The combination of both properties allows efficient construction of the set of \emph{required} \todo{any better names? former free variables, abstraction variables\ldots} variables for a total complexity of $\mathcal{O}(n^2)$, as we shall see.
+The combination of both properties allows efficient construction of the set of \emph{required} \todo{any better names? former free variables, abstraction variables...} variables for a total complexity of $\mathcal{O}(n^2)$, as we shall see.
 
 \subsection{Syntax}
 
@@ -285,38 +295,96 @@ What remains is the trivial, but noisy definition of the \liftb traversal:
 
 \label{sec:analysis}
 
-Lambda lifting a binding to top-level is always \todo{except when we would replace a parameter occurrence by an application} a sound transformation.
-The challenge is in identifying \emph{when} it is beneficial to do so.
-This section will discuss operational consequences of lambda lifting, introducing multiple criteria based on a cost model for estimating impact on heap allocations.
+Lambda lifting a binding to top-level is always a sound transformation.  The
+challenge is in identifying \emph{when} it is beneficial to do so.  This
+section will discuss operational consequences of lambda lifting, introducing
+multiple criteria based on a cost model for estimating impact on heap
+allocations.
+
+We'll take a somewhat loose approach to following the STG invariants in our
+examples (regarding giving all complex subexpressions a name, in particular),
+but will point out the details if need be. \todo{I hope this is OK?}
 
 \subsection{Syntactic consequences}
 
-Deciding to lift a binding |let f = [x y z] \a b c -> e_1 in e_2| to top-level has the following consequences:
+Deciding to lift a binding |let f = [x y z] \a b c -> e_1 in e_2| to top-level
+has the following consequences:
 
 \begin{enumerate}[label=\textbf{(S\arabic*)},ref=(S\arabic*)]
   \item \label{s1} It eliminates the |let| binding.
   \item \label{s2} It creates a new top-level definition.
-  \item \label{s3} It replaces all occurrences of |f| in |e_2| by an application of the lifted top-level binding to its former free variables, replacing the whole |let| binding by the term |[f =-> f_up x y z]e_2|. \todo{Maybe less detail here}
+  \item \label{s3} It replaces all occurrences of |f| in |e_2| by an
+    application of the lifted top-level binding to its former free variables,
+    replacing the whole |let| binding by the term |[f =-> f_up x y z]e_2|.
+    \todo{Modulo binding non-atomic argument expressions}
+    \todo{Maybe less detail here}
   \item \label{s4} All non-top-level variables that occurred in the |let| binding's right-hand side become parameter occurrences.
 \end{enumerate}
 
-Consider what happens if |f| occurred in |e_2| as an argument in an application, as in |g 5 x f|. \ref{s3} demands that the argument occurrence of |f| is replaced by an application expression.
-This, however, would yield a syntactically invalid expression, because the STG language only allows trivial arguments in an application.
+Naming seemingly obvious things this way means we can precisely talk about
+\emph{why} we are suffering from one of the operational symptoms discussed
+next.
 
-An easy fix would be to bind the complex expression to an auxiliary |let| binding, thereby re-introducing the very allocation we wanted to eliminate through lambda lifting\todo{Move this further down?}. Therefore, we can identify a first criterion for non-beneficial lambda lifts:
+\subsection{Operational consequences}
+
+We now ascribe operational symptoms to combinations of syntactic effects. These
+symptoms justify the derivation of heuristics which will decide when \emph{not}
+to lift.
+
+\paragraph{Argument occurrences.} Consider what happens if |f| occurred in the
+|let| body |e_2| as an argument in an application, as in |g 5 x f|.  \ref{s3}
+demands that the argument occurrence of |f| is replaced by an application
+expression.  This, however, would yield a syntactically invalid expression,
+because the STG language only allows trivial arguments in an application.
+
+The transformation from \cref{sec:trans} will immediately wrap the application
+in a |let| binding for the complex argument expression: |g 5 x f ==> let f =
+f_up x y z in g 5 x f|.  But this just reintroduces at every call site the very
+allocation we wanted to eliminate through lambda lifting! Therefore, we can identify a
+first criterion for non-beneficial lambda lifts:
+
+\todo{Measure that this is actually non-beneficial. The closure growth
+heuristic will probably catch all bad cases. Also possible code growth.} 
 
 \begin{introducecrit}
   \item Don't lift binders that occur as arguments
 \end{introducecrit}
 
-\subsection{Operational consequences}
+\paragraph{Undersaturated calls.} When GHC spots an undersaturated call, it
+arranges allocation of a partial application that closes over the supplied
+arguments.  Pay attention to the call to |f| in the following example:
 
-We now ascribe operational symptoms to combinations of syntactic effects. These symptoms justify the derivation of heuristics which will decide when \emph{not} to lift.
-
-\paragraph{Closure growth.} \ref{s1} means we don't allocate a closure on the heap for the |let| binding. On the other hand, \ref{s3} might increase or decrease heap allocation. Consider this example:
+\todo{Think about this some mroe and measure. I suspect the allocation heuristic would catch unbeneficial cases. PAPs are let bindings after all}
+\todo{This isn't actually valid STG, as are all the other examples taking a list, etc.}
 
 \begin{code}
-let f = [x y] \a b -> \ldots
+let f = [x] \y z -> x + y + z;
+in map (f x) [1, 2, 3]
+\end{code}
+
+Here, the undersaturated (\eg curried) call to |f| leads to the allocation of a
+partial application, carrying two pointers, to |f| and |x|, respectively. What
+happens when |f| is lambda lifted?
+
+\begin{code}
+f_up = \x y z -> x + y + z;
+map (f_up x x) [1, 2, 3]
+\end{code}
+
+The call to |f_up| will still allocate a partial application, with the only
+difference that it now also closes over |f|'s free variable |x| \todo{But no
+more f!}, canceling out the beneficial effects of \ref{s1}. Hence
+
+\begin{introducecrit}
+  \item Don't lift a binding that has undersaturated calls \todo{Measure}
+\end{introducecrit}
+
+\paragraph{Closure growth.} \ref{s1} means we don't allocate a closure on the
+heap for the |let| binding. On the other hand, \ref{s3} might increase or
+decrease heap allocation. Consider this example:
+
+\begin{code}
+let f = [x y] \a b -> ...
     g = [f x] \d -> f d d + x
 in g 5
 \end{code}
@@ -324,41 +392,47 @@ in g 5
 Should |f| be lifted? It's hard to say without actually seeing the lifted version:
 
 \begin{code}
-f_up = \x y a b -> \ldots;
+f_up = \x y a b -> ...;
 let g = [x y] \d -> f_up x y d d + x
 in g 5
 \end{code}
 
-Just counting the number of variables occurring in closures, the effect of \ref{s1} saved us two slots. At the same time, \ref{s3} removes |f| from |g|'s closure (no need to close over the top-level |f_up|), while simultaneously  enlarging it with |f|'s former free variable |y|. The new occurrence of |x| doesn't contribute to closure growth, because it already occurred in |g| prior to lifting. The net result is a reduction of two slots, so  lifting |f| seems worthwhile. In general:
+Just counting the number of variables occurring in closures, the effect of
+\ref{s1} saved us two slots. At the same time, \ref{s3} removes |f| from |g|'s
+closure (no need to close over the top-level |f_up|), while simultaneously
+enlarging it with |f|'s former free variable |y|. The new occurrence of |x|
+doesn't contribute to closure growth, because it already occurred in |g| prior
+to lifting. The net result is a reduction of two slots, so  lifting |f| seems
+worthwhile. In general:
 
 \begin{introducecrit}
   \item \label{h:alloc} Don't lift a binding when doing so would increase closure allocation
 \end{introducecrit}
 
-Estimation of closure growth is crucial to identifying beneficial lifting opportunities. We discuss this further in \ref{ssec:cg}.
+Estimation of closure growth is crucial to identifying beneficial lifting opportunities.
+We discuss this further in \cref{ssec:cg}.
 
 \paragraph{Calling Convention.} \ref{s4} means that more arguments have to be passed. Depending on the target architecture, this means more stack accesses and/or higher register pressure. Thus
 
 \begin{introducecrit}
-  \item Don't lift a binding when the arity of the resulting top-level definition exceeds the number of available hardware registers (\eg 5 arguments on x86\_64)
+  \item Don't lift a binding when the arity of the resulting top-level definition exceeds the number of available hardware registers (\eg 5 arguments for GHC on x86\_64)
 \end{introducecrit}
 
 \paragraph{Turning known calls into unknown calls.} There's another aspect related to \ref{s4}, relevant in programs with higher-order functions:
 
 \begin{code}
 let f = [] \x -> 2*x
-    mapF = [f] \xs -> \ldots f x \ldots
+    mapF = [f] \xs -> ... f x ...
 in mapF [1, 2, 3]
 \end{code}
 
 Here, there is a \emph{known call} to |f| in |mapF| that can be lowered as a direct jump to a static address \parencite{fastcurry}.  Lifting |mapF| (but not |f|) yields the following program:
 
 \begin{code}
-mapF_up = \f xs -> \ldots f x \ldots;
+mapF_up = \f xs -> ... f x ...;
 let f = [] \x -> 2*x
 in mapF_up f [1, 2, 3]
 \end{code}
-
 
 \begin{introducecrit}
   \item Don't lift a binding when doing so would turn known calls into unknown calls
@@ -372,26 +446,6 @@ in mapF_up f [1, 2, 3]
 %   \item Don't lift a binding when doing so would turn a slow unknown call into a very slow unknown call \todo{call these fast and slow unknown calls instead? Easily confused with fast and slow entrypoints, which are related, but different}
 % \end{introducecrit}
 
-\paragraph{Undersaturated calls.} When GHC spots an undersaturated call, it arranges allocation of a partial application that closes over the supplied arguments. Pay attention to the call to |f| in the following example:
-
-\begin{code}
-let f = [x] \y z -> x + y + z;
-in map (f x) [1, 2, 3]
-\end{code}
-
-Here, the undersaturated (\eg curried) call to |f| leads to the allocation of a partial application, carrying two pointers, to |f| and |x|, respectively. What happens when |f| is lambda lifted?
-
-\begin{code}
-f_up = \x y z -> x + y + z;
-map (f_up x x) [1, 2, 3]
-\end{code}
-
-The call to |f_up| will still allocate a partial application, with the only difference that it now also closes over |f|'s free variable |x|, canceling out the beneficial effects of \ref{s1}. Hence
-
-\begin{introducecrit}
-  \item Don't lift a binding that has undersaturated calls
-\end{introducecrit}
-
 \paragraph{Sharing.} Let's finish with a no-brainer: Lambda lifting updatable bindings (\eg thunks) or constructor bindings is a bad idea, because it destroys sharing, thus possibly duplicating work in each call to the lifted binding.
 
 \begin{introducecrit}
@@ -401,12 +455,15 @@ The call to |f_up| will still allocate a partial application, with the only diff
 \subsection{Estimating Closure Growth}
 \label{ssec:cg}
 
-Of the criterions above, \ref{h:alloc} is the most important for reliable performance gains. It's also the most sophisticated, because it entails estimating closure growth.
+Of the criterions above, \ref{h:alloc} is the most important for reliable performance gains.
+It's also the most sophisticated, because it entails estimating closure growth.
+
+\subsubsection{Motivation}
 
 Let's revisit the example from above:
 
 \begin{code}
-let f = [x y] \a b -> \ldots
+let f = [x y] \a b -> ...
     g = [f x] \d -> f d d + x
 in g 5
 \end{code}
@@ -421,7 +478,7 @@ Of these, only |y| really contributes to closure growth, because |x| already occ
 This phenomenon is amplified whenever allocation happens under a multi-shot lambda, as the following example demonstrates:
 
 \begin{code}
-let f = [x y] \a b -> \ldots
+let f = [x y] \a b -> ...
     g = [f x] \d ->
       let h = [f] \e -> f e e
       in h d
@@ -438,7 +495,7 @@ In general, |h| might be occuring inside a recursive function, for which we can'
 Disallowing to lift any binding which is called inside a closure under such a multi-shot lambda is conservative, but rules out worthwhile cases like this:
 
 \begin{code}
-let f = [x y] \a b -> \ldots
+let f = [x y] \a b -> ...
     g = [f x y] \d ->
       let h_1 = [f] \e -> f e e
           h_2 = [f x y] \e -> f e e + x + y
@@ -447,15 +504,82 @@ in g 1 + g 2 + g 3
 \end{code}
 
 Here, the closure of |h_1| grows by one, whereas that of |h_2| shrinks by one, cancelling each other out.
-We express this in our cost model by an infinite closure growth whenever there was any positive closure growth under a multi-shot lambda.
+Hence there is no actual closure growth happening under the multi-shot binding |g| and |f| is good to lift.
 
-One final remark regarding analysis performance.
-\todo{equation} operates directly on STG expressions.
+The solution is to denote closure growth in the min-plus algebra $\zinf = \mathbb{Z} \cup \{\infty\}$ and denote positive closure growth under a multi-shot lambda by $\infty$.
+
+\subsubsection{Design}
+
+Applied to our simple STG language, we can define a function $\cg$ with the following signature:
+
+\[
+\cg_{\mathunderscore\,\mathunderscore}(\mathunderscore) \colon \mathcal{P}(\var) \to \mathcal{P}(\var) \to \expr \to \zinf
+\]
+
+Given two sets of variables for added and removed closure variables, respectively, it maps expressions to the closure growth resulting from 
+\begin{itemize}
+\item adding variables from the first set everywhere a variable from the second set is referenced 
+\item and removing all closure variables mentioned in the second set.
+\end{itemize}
+
+In the lifting algorithm from \cref{sec:trans}, \cg would be consulted as part of the lifting decision to estimate the total effect on allocations like this,
+
+\[
+\cg_{\absids'(\idf_1)\,\{\overline{\idf_i}\}}(\mkLetr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idy_1 \ldots \idy_{m_i}}{\ide_i}{\ide}) - \sum_i n_i
+\]
+
+with the \emph{required} set $\absids'(\idf_1)$ as the first argument and with $\{\overline{\idf_i}\}$ for the second set (\ie the binders for which lifting is to be decided).
+The expression for which lifting is decided would be the whole |let| expression of the binding in question.
+The resulting closure growth is entirely due to \ref{s3}, so we include the beneficial effect of \ref{s1} into the equation by discounting the sizes of the closures we would no longer allocate.
+This expression conservatively estimates the effects on heap allocation.
+In practice, we require that this metric is non-positive to allow the lambda lift.
+
+\subsubsection{Implementation}
+
+The cases for variables and applications are trivial, because they don't allocate:
+\begin{alignat*}{2}
+\cg_{\added\removed}(\idx) &&{}={}& 0 \\
+\cg_{\added\removed}(\idf\; \idx_1 \ldots \idx_n) &&{}={}& 0 \\
+\end{alignat*}
+As before, the complexity hides in |let| bindings.
+\[
+\cg_{\added\removed}(\mkLetr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idy_1 \ldots \idy_{m_i}}{\ide_i}{\ide}) = \growth \\
+\]
+
+With the declarations out of the way, here comes the main act:
+\begin{alignat*}{2}
+\growth &&{}={}& \cg_{\added\removed}(\ide) + \sum_i \local_i + \sum_i \fun{max}\,0\,\cg_{\added\removed}(\ide_i) * \mu_i \\
+\local_i &&{}={}&
+  \begin{cases}
+    \card{\added \setminus \{\idx_1,\ldots,\idx_{n_i}\}} - \nu_i, & \text{if $\nu_i > 0$} \\
+    0, & \text{otherwise} \\
+  \end{cases} \\
+\nu_i &&{}={}& \card{\{\idx_1,\ldots,\idx_{n_i}\} \cap \removed} \\
+\mu_i &&{}={}&
+  \begin{cases}
+    1, & \text{$\idf_i$ binds a one-shot lambda or thunk} \\
+    \infty, & \text{otherwise} \\
+  \end{cases} \\
+\end{alignat*}
+
+The \local component of \growth accounts for allocating each closure of the |let| binding.
+Whenever a closure mentions one of the variables to be removed (\ie $\removed$, the bindings to be lifted), we count the number of variables that are removed in $\nu$ and subtract them from the number of variables from $\added$ (\ie the required set of the binding group to lift) that didn't occur in the closure before.
+
+The right-hand sides of the |let| binding might or might not be entered, so we cannot rely on a beneficial negative closure growth to occur in all cases.
+Therefore, we bound closure growth from right-hand sides to be non-negative for a conservative estimate. \todo{We could look at the strictness info to see if it was always called}
+Additionally, we handle multi-shot lambdas by multiplying with $\infty$.
+
+\vspace{2mm}
+
+One final remark regarding analysis performance: \cg operates directly on STG expressions.
 This means the cost function has to traverse whole syntax trees \emph{for every lifting decision}.
 
-Instead, our implementation first abstracts the syntax tree into a \emph{skeleton}, retaining only the information necessary for our analysis.
+We remedy this by first abstracting the syntax tree into a \emph{skeleton}, retaining only the information necessary for our analysis.
 In particular, this includes allocated closures and their free variables, but also occurrences of multi-shot lambda abstractions.
-Additionally, there are the usual \enquote{glue operators}, such as sequence (\eg the case scrutinee is evaluated whenever one of the case alternatives is), choice (\eg one of the case alternatives is evaluated \emph{mutually exclusively}) and an identity (\eg literals don't allocate).
+Additionally, there are the usual \enquote{glue operators}, such as sequence (\eg the case scrutinee is evaluated whenever one of the case alternatives is), choice (\eg one of the case alternatives is evaluated \emph{mutually exclusively}) and an identity (\ie literals don't allocate).
+This also helps to split the complex |let| case into more manageable chunks.
+
+\section{Evaluation}
 
 \printbibliography
 
