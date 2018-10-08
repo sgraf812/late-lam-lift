@@ -528,6 +528,8 @@ In the lifting algorithm from \cref{sec:trans}, \cg would be consulted as part o
 \cg_{\absids'(\idf_1)\,\{\overline{\idf_i}\}}(\mkLetr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idy_1 \ldots \idy_{m_i}}{\ide_i}{\ide}) - \sum_i n_i
 \]
 
+\todo{Written as above, \cg will also take the closures we are about to lift into the equation, which is wrong. Think of an elegant workaround}
+
 with the \emph{required} set $\absids'(\idf_1)$ as the first argument and with $\{\overline{\idf_i}\}$ for the second set (\ie the binders for which lifting is to be decided).
 The expression for which lifting is decided would be the whole |let| expression of the binding in question.
 The resulting closure growth is entirely due to \ref{s3}, so we include the beneficial effect of \ref{s1} into the equation by discounting the sizes of the closures we would no longer allocate.
