@@ -1,4 +1,4 @@
-\documentclass{article}
+\documentclass[draft]{article}
 
 %include custom.fmt
 
@@ -10,6 +10,7 @@
 \usepackage{mathtools}
 \usepackage[dvipsnames]{xcolor}
 \usepackage{xspace}
+\usepackage{todonotes}
 \usepackage{enumitem}
 \usepackage{hyperref}
 \usepackage{cleveref}
@@ -19,7 +20,7 @@
 
 \bibliography{references.bib}
 
-\newcommand{\todo}[1]{\textcolor{red}{TODO: #1}\PackageWarning{TODO:}{#1!}}
+\newcommand{\cf}{cf.\@@\xspace}
 \newcommand{\eg}{e.g.,\@@\xspace}
 \newcommand{\ie}{i.e.\@@\xspace}
 
@@ -34,13 +35,14 @@
 \newcommand{\ide}{\id{e}}
 \newcommand{\idf}{\id{f}}
 \newcommand{\idm}{\id{m}}
+\newcommand{\idr}{\id{r}}
 \newcommand{\closure}[1]{[\mskip1.5mu #1 \mskip1.5mu]}
-\newcommand{\rhs}[3]{\closure{#1} \lambda #2 \to #3}
-\newcommand{\mkBind}[4]{#1 \mathrel{=} \rhs{#2}{#3}{#4}}
-\newcommand{\mkBindr}[4]{\overline{\mkBind{#1}{#2}{#3}{#4}}}
+\newcommand{\rhs}[2]{\lambda #1 \to #2}
+\newcommand{\mkBind}[3]{#1 \mathrel{=} \closure{#2} #3}
+\newcommand{\mkBindr}[3]{\overline{\mkBind{#1}{#2}{#3}}}
 \newcommand{\mkLetb}[2]{\keyword{let}\; #1\; \keyword{in}\; #2}
-\newcommand{\mkLet}[5]{\mkLetb{\mkBind{#1}{#2}{#3}{#4}}{#5}}
-\newcommand{\mkLetr}[5]{\mkLetb{\mkBindr{#1}{#2}{#3}{#4}}{#5}}
+\newcommand{\mkLet}[5]{\mkLetb{\mkBind{#1}{#2}{\rhs{#3}{#4}}}{#5}}
+\newcommand{\mkLetr}[5]{\mkLetb{\mkBindr{#1}{#2}{\rhs{#3}{#4}}}{#5}}
 \newcommand{\sfop}[1]{\textsf{#1}\xspace}
 \newcommand{\fun}[1]{\textsf{#1}\xspace}
 \newcommand{\ty}[1]{\textsf{#1}\xspace}
@@ -116,8 +118,8 @@ Although Johnsson's original algorithm runs in wort-case cubic time relative to 
 
 Our lambda lifting transformation is unique in that it operates on terms of the \emph{spineless tagless G-machine} (STG) \parencite{stg} as currently implemented \parencite{fastcurry} in GHC.
 This means we can assume that the nesting structure of bindings corresponds to the condensation (the directed acyclic graph of strongly connected components) of the dependency graph. \todo{less detail? less language?}
-Additionally, every binding in a (recursive) |let| expression is annotated with the free variables it closes over.
-The combination of both properties allows efficient construction of the set of \emph{required} \todo{any better names? former free variables, abstraction variables...} variables for a total complexity of $\mathcal{O}(n^2)$, as we shall see.
+Additionally, every binding in a (recursive) |let| binding is annotated with the free variables it closes over.
+The combination of both properties allows efficient construction of the set of \emph{required} \todo{any better names? former free variables, abstraction variables...} variables for a total complexity of $\mathcal{O}(n^2)$, as we shall see. \todo{Shall we? Analysis performance doesn't seem to be a problem thus far}
 
 \subsection{Syntax}
 
@@ -125,10 +127,14 @@ Although STG is but a tiny language compared to typical surface languages such a
 As can be seen in \cref{fig:syntax}, we therefore adopt a simple lambda calculus with |let| bindings as in \textcite{Johnsson1985}, with a few STG-inspired features:
 
 \begin{enumerate}
-\item |let| bindings are annotated with the non-top-level free variables they close over
+\item |let| bindings are annotated with the non-top-level free variables of the right-hand side (RHS) they bind
 \item Every lambda abstraction is the right-hand side of a |let| binding
 \item Arguments and heads in an application expression are all atomic (\eg variable references)
 \end{enumerate}
+
+We decomposed |let| expressions into smaller syntactic forms for the simple
+reason that it allows the analysis and transformation to be defined in more
+granular (and thus more easily understood) steps.
 
 \begin{figure}[h]
 \begin{alignat*}{4}
@@ -136,7 +142,8 @@ As can be seen in \cref{fig:syntax}, we therefore adopt a simple lambda calculus
 \text{Expressions} && e & {}\Coloneqq{} && x && \text{Variable} \\
             &&   & \mathwithin{{}\Coloneqq{}}{\mid} && f\; x_1\ldots\,x_n && \text{Function call} \\
             &&   & \mathwithin{{}\Coloneqq{}}{\mid} && \mkLetb{b}{e} && \text{Recursive \keyword{let}} \\
-\text{Bindings} && b & {}\Coloneqq{} && \overline{f_i \mathrel{=} [\mskip1.5mu x_{i,1} \ldots\, x_{i,n_i}\mskip1.5mu] \lambda \mskip1.5mu y_{i,1} \ldots\,y_{i,m_i}\to e_i} && \\
+\text{Bindings} && b & {}\Coloneqq{} && \overline{f_i \mathrel{=} [\mskip1.5mu x_{i,1} \ldots\, x_{i,n_i}\mskip1.5mu] \mskip1.5mu r_i} && \\
+\text{Right-hand sides} && r & {}\Coloneqq{} && \lambda \mskip1.5mu y_1 \ldots\,y_m\to e && \\
 \end{alignat*}
 \caption{An STG-like untyped lambda calculus}
 \label{fig:syntax}
@@ -150,12 +157,13 @@ It is assumed that all variables have unique names and that there is a sufficien
 
 We'll define a side-effecting function, \lift, recursively over the term structure. This is its signature:
 
-\todo{Why not use plain Haskell?}
-\todo{Why not formulate this as inference rules?}
+\todo[inline]{Take inspiration in "Implementing functional languages: a tutorial" and collect super-combinators afterwards for better separation of concerns. Is that possible? After all, that would influence the lifting decision!}
 
 \[
 \lift_{\mathunderscore}(\mathunderscore) \colon \expander \to \expr \to \writer{\bindgr}{\expr}
 \]
+\todo{Why not formulate this as inference rules?}
+\todo{I think the occurrences of body expression etc. need to be meta-variables.}
 
 As its first argument, \lift takes an \expander, which is a partial function from lifted binders to their sets of required variables.
 These are the additional variables we have to pass at call sites after lifting.
@@ -200,10 +208,12 @@ There are no bindings occuring that could be lambda lifted, hence the function p
 
 \subsubsection{Applications}
 
+\label{sssec:app}
+
 Handling function application correctly is a little subtle, because only variables are allowed in argument position.
 When such an argument variable's binding is lifted to top-level, it turns into a non-atomic application expression, violating the STG invariants.
 Each such application must be bound to an enclosing |let| binding
-\footnote{To keep the specification reasonably simple, we also do so for non-lifted identifiers and assuming that the compiler can do the trivial rewrite $\mkLet{\idy}{\idx}{}{\idx}{E[\idy]} \Longrightarrow E[\idx]$ for us.}:
+\footnote{To keep the specification reasonably simple, we also do so for non-lifted identifiers and assume that the compiler can do the trivial rewrite $\mkLet{\idy}{\idx}{}{\idx}{E[\idy]} \Longrightarrow E[\idx]$ for us.}:
 
 \todo{The application rule is unnecessarily complicated because we support occurrences of lifted binders in argument position. Lifting such binders isn't worthwhile anyway (see \cref{sec:analysis}). Maybe just say that we don't allow it?}
 
@@ -238,7 +248,7 @@ This can be broken down into three separate functions:
 \end{enumerate}
 
 \begin{alignat*}{2}
-\expand_\absids(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idz_1 \ldots \idz_{m_i}}{\ide_i}) &&{}={}& \mkBindr{\idf_i}{\idy_1 \ldots \idy_{n'_i}}{\idz_1 \ldots \idz_{m_i}}{\ide_i} \\
+\expand_\absids(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idr_i}) &&{}={}& \mkBindr{\idf_i}{\idy_1 \ldots \idy_{n'_i}}{\idr_i} \\
 \text{where}\qquad\qquad &&& \\
 \{\idy_1\ldots \idy_{n'_i}\} &&{}={}& \bigcup_{j=1}^{n_i}
   \begin{cases}
@@ -246,6 +256,8 @@ This can be broken down into three separate functions:
     \absids(\idx_j), & \text{otherwise}
   \end{cases}
 \end{alignat*}
+
+\todo{Not happy with the indices. $\idy_{i,1}$ maybe? Applies to many more examples.}
 
 \expand substitutes all occurences of lifted binders (those that are in $\dom{\absids}$) in closures of a given binding group by their required set.
 
@@ -256,7 +268,7 @@ This can be broken down into three separate functions:
     (\idbs, \absids, \emptybind), & \text{otherwise} \\
   \end{cases} \\
 \text{where}\qquad &&& \\
-\absids' &&{}={}& \absids\left[\overline{\idf_i \mapsto \fvs(\idbs)}\right] \text{for } \mkBindr{\idf_i}{\mathunderscore}{\mathunderscore}{\mathunderscore} = \idbs \\
+\absids' &&{}={}& \absids\left[\overline{\idf_i \mapsto \fvs(\idbs)}\right] \text{for } \mkBindr{\idf_i}{\mathunderscore}{\mathunderscore} = \idbs \\
 \end{alignat*}
 
 \decide returns a triple of a binding group that remains with the local |let| binding, an updated expander and a binding group prepared to be lifted to top-level.
@@ -264,15 +276,17 @@ Depending on whether the argument $\idbs$ is decided to be lifted or not, either
 In case the binding is to be lifted, the expander is updated to map the newly lifted bindings to their required set.
 
 \[
-\fvs(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idy_1 \ldots \idy_{m_i}}{\ide_i}) = \bigcup_i \{\idx_1, \ldots, \idx_{n_i} \} \setminus \overline{\idf_i} \\
+\fvs(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\mathunderscore}) = \bigcup_i \{\idx_1, \ldots, \idx_{n_i} \} \setminus \overline{\idf_i} \\
 \]
 
 The required set consists of the free variables of each binding's RHS, conveniently available in syntax, minus the defined binders themselves.
 Note that the required set of each binder of the same binding group will be identical.
 
 \[
-\liftl_\absids(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idy_1 \ldots \idy_{m_i}}{\ide_i}) = \mkBindr{\idf_i}{}{\absids(\idf_i)\; \idy_1 \ldots \idy_{m_i}}{\ide_i} \\
+\liftl_\absids(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\rhs{\idy_1 \ldots \idy_{m_i}}{\ide_i}}) = \mkBindr{\idf_i}{}{\rhs{\absids(\idf_i)\; \idy_1 \ldots \idy_{m_i}}{\ide_i}} \\
 \]
+
+\todo{"Implementing functional languages: a tutorial" calls this the \emph{abstraction step}.}
 
 The syntactic lambda lifting is performed in \liftl, where closure variables are removed in favor of a number of parameters, one for each element of the respective binding's required set.
 
@@ -288,7 +302,7 @@ The result is again wrapped up in a |let| and returned\footnote{Similar to the a
 What remains is the trivial, but noisy definition of the \liftb traversal:
 
 \[
-\liftb_\absids(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idy_1 \ldots \idy_{m_i}}{\ide_i}) = \idiom{\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idy_1 \ldots \idy_{m_i}}{\eff{\lift_\absids(\ide_i)}}} \\
+\liftb_\absids(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\rhs{\idy_1 \ldots \idy_{m_i}}{\ide_i}}) = \idiom{\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\rhs{\idy_1 \ldots \idy_{m_i}}{\eff{\lift_\absids(\ide_i)}}}} \\
 \]
 
 \section{When to lift} % Or: Analysis?
@@ -303,7 +317,7 @@ allocations.
 
 We'll take a somewhat loose approach to following the STG invariants in our
 examples (regarding giving all complex subexpressions a name, in particular),
-but will point out the details if need be. \todo{I hope this is OK?}
+but will point out the details if need be.
 
 \subsection{Syntactic consequences}
 
@@ -315,9 +329,7 @@ has the following consequences:
   \item \label{s2} It creates a new top-level definition.
   \item \label{s3} It replaces all occurrences of |f| in |e_2| by an
     application of the lifted top-level binding to its former free variables,
-    replacing the whole |let| binding by the term |[f =-> f_up x y z]e_2|.
-    \todo{Modulo binding non-atomic argument expressions}
-    \todo{Maybe less detail here}
+    replacing the whole |let| binding by the term |[f =-> f_up x y z]e_2|.\footnote{Actually, this will also need to give a name to new non-atomic argument expressions (\cf \cref{sssec:app}). We'll argue shortly that there is hardly any benefit in allowing these cases.}
   \item \label{s4} All non-top-level variables that occurred in the |let| binding's right-hand side become parameter occurrences.
 \end{enumerate}
 
@@ -334,50 +346,22 @@ to lift.
 \paragraph{Argument occurrences.} Consider what happens if |f| occurred in the
 |let| body |e_2| as an argument in an application, as in |g 5 x f|.  \ref{s3}
 demands that the argument occurrence of |f| is replaced by an application
-expression.  This, however, would yield a syntactically invalid expression,
+expression.  This, however, would yield a syntactically invalid expression
 because the STG language only allows trivial arguments in an application.
 
 The transformation from \cref{sec:trans} will immediately wrap the application
-in a |let| binding for the complex argument expression: |g 5 x f ==> let f =
-f_up x y z in g 5 x f|.  But this just reintroduces at every call site the very
+in a |let| binding for the complex argument expression: |g 5 x f ==> let f' =
+f_up x y z in g 5 x f'|.  But this just reintroduces at every call site the very
 allocation we wanted to eliminate through lambda lifting! Therefore, we can identify a
 first criterion for non-beneficial lambda lifts:
-
-\todo{Measure that this is actually non-beneficial. The closure growth
-heuristic will probably catch all bad cases. Also possible code growth.} 
 
 \begin{introducecrit}
   \item Don't lift binders that occur as arguments
 \end{introducecrit}
 
-\paragraph{Undersaturated calls.} When GHC spots an undersaturated call, it
-arranges allocation of a partial application that closes over the supplied
-arguments.  Pay attention to the call to |f| in the following example:
-
-\todo{Think about this some mroe and measure. I suspect the allocation heuristic would catch unbeneficial cases. PAPs are let bindings after all}
-\todo{This isn't actually valid STG, as are all the other examples taking a list, etc.}
-
-\begin{code}
-let f = [x] \y z -> x + y + z;
-in map (f x) [1, 2, 3]
-\end{code}
-
-Here, the undersaturated (\eg curried) call to |f| leads to the allocation of a
-partial application, carrying two pointers, to |f| and |x|, respectively. What
-happens when |f| is lambda lifted?
-
-\begin{code}
-f_up = \x y z -> x + y + z;
-map (f_up x x) [1, 2, 3]
-\end{code}
-
-The call to |f_up| will still allocate a partial application, with the only
-difference that it now also closes over |f|'s free variable |x| \todo{But no
-more f!}, canceling out the beneficial effects of \ref{s1}. Hence
-
-\begin{introducecrit}
-  \item Don't lift a binding that has undersaturated calls \todo{Measure}
-\end{introducecrit}
+A welcome side-effect is that the application case of the transformation in
+\cref{sssec:app} becomes much simpler: The complicated \wrap business becomes
+unnecessary.
 
 \paragraph{Closure growth.} \ref{s1} means we don't allocate a closure on the
 heap for the |let| binding. On the other hand, \ref{s3} might increase or
@@ -409,14 +393,22 @@ worthwhile. In general:
   \item \label{h:alloc} Don't lift a binding when doing so would increase closure allocation
 \end{introducecrit}
 
-Estimation of closure growth is crucial to identifying beneficial lifting opportunities.
-We discuss this further in \cref{ssec:cg}.
+Note that this also includes handling of |let| bindings for partial
+applications that are allocated when GHC spots an undersaturated call.
 
-\paragraph{Calling Convention.} \ref{s4} means that more arguments have to be passed. Depending on the target architecture, this means more stack accesses and/or higher register pressure. Thus
+Estimation of closure growth is crucial to identifying beneficial lifting
+opportunities. We discuss this further in \cref{ssec:cg}.
+
+\paragraph{Calling Convention.} \ref{s4} means that more arguments have to be passed. Depending on the target architecture, this entails more stack accesses and/or higher register pressure. Thus
 
 \begin{introducecrit}
-  \item Don't lift a binding when the arity of the resulting top-level definition exceeds the number of available hardware registers (\eg 5 arguments for GHC on x86\_64)
+  \item Don't lift a binding when the arity of the resulting top-level definition exceeds the number of available argument registers of the employed calling convention (\eg 5 arguments for GHC on x86\_64)
 \end{introducecrit}
+
+One could argue that we can still lift a function when its arity won't change.
+But in that case, the function would not have any free variables to begin with
+and could just be floated to top-level. As is the case with GHC's full laziness
+transformation, we assume that this already happened in a prior pass.
 
 \paragraph{Turning known calls into unknown calls.} There's another aspect related to \ref{s4}, relevant in programs with higher-order functions:
 
@@ -445,6 +437,8 @@ in mapF_up f [1, 2, 3]
 % \begin{introducecrit}
 %   \item Don't lift a binding when doing so would turn a slow unknown call into a very slow unknown call \todo{call these fast and slow unknown calls instead? Easily confused with fast and slow entrypoints, which are related, but different}
 % \end{introducecrit}
+
+\paragraph{Code size.} \ref{s2} (and, to a lesser extent, all other consequences) have the potential to increase or decrease code size. We regard this a secondary concern, but will have a look at it in \cref{sec:eval}.
 
 \paragraph{Sharing.} Let's finish with a no-brainer: Lambda lifting updatable bindings (\eg thunks) or constructor bindings is a bad idea, because it destroys sharing, thus possibly duplicating work in each call to the lifted binding.
 
@@ -582,6 +576,9 @@ Additionally, there are the usual \enquote{glue operators}, such as sequence (\e
 This also helps to split the complex |let| case into more manageable chunks.
 
 \section{Evaluation}
+\label{sec:eval}
+
+\listoftodos
 
 \printbibliography
 

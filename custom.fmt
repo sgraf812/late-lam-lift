@@ -13,6 +13,7 @@
 %format h_1
 %format h_2
 %format =-> = "\mapsto"
+%format ==> = "\Longrightarrow"
 
 
 %format !! = "\mathop{}\tick\tick"
