@@ -37,12 +37,12 @@
 \newcommand{\idm}{\id{m}}
 \newcommand{\idr}{\id{r}}
 \newcommand{\closure}[1]{[\mskip1.5mu #1 \mskip1.5mu]}
-\newcommand{\rhs}[2]{\lambda #1 \to #2}
+\newcommand{\mkRhs}[2]{\lambda #1 \to #2}
 \newcommand{\mkBind}[3]{#1 \mathrel{=} \closure{#2} #3}
 \newcommand{\mkBindr}[3]{\overline{\mkBind{#1}{#2}{#3}}}
 \newcommand{\mkLetb}[2]{\keyword{let}\; #1\; \keyword{in}\; #2}
-\newcommand{\mkLet}[5]{\mkLetb{\mkBind{#1}{#2}{\rhs{#3}{#4}}}{#5}}
-\newcommand{\mkLetr}[5]{\mkLetb{\mkBindr{#1}{#2}{\rhs{#3}{#4}}}{#5}}
+\newcommand{\mkLet}[5]{\mkLetb{\mkBind{#1}{#2}{\mkRhs{#3}{#4}}}{#5}}
+\newcommand{\mkLetr}[5]{\mkLetb{\mkBindr{#1}{#2}{\mkRhs{#3}{#4}}}{#5}}
 \newcommand{\sfop}[1]{\textsf{#1}\xspace}
 \newcommand{\fun}[1]{\textsf{#1}\xspace}
 \newcommand{\ty}[1]{\textsf{#1}\xspace}
@@ -68,7 +68,9 @@
 \newcommand{\absids}{\alpha}
 \newcommand{\added}{\varphi^+}
 \newcommand{\removed}{\varphi^-}
-\newcommand{\cg}{\fun{closure-growth}}
+\newcommand{\cg}{\fun{cl-gr}}
+\newcommand{\cgb}{\fun{cl-gr-bind}}
+\newcommand{\cgr}{\fun{cl-gr-rhs}}
 \newcommand{\growth}{\fun{growth}}
 \newcommand{\local}{\fun{local}}
 \newcommand{\zinf}{\mathbb{Z}_{\infty}}
@@ -283,7 +285,7 @@ The required set consists of the free variables of each binding's RHS, convenien
 Note that the required set of each binder of the same binding group will be identical.
 
 \[
-\liftl_\absids(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\rhs{\idy_1 \ldots \idy_{m_i}}{\ide_i}}) = \mkBindr{\idf_i}{}{\rhs{\absids(\idf_i)\; \idy_1 \ldots \idy_{m_i}}{\ide_i}} \\
+\liftl_\absids(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\mkRhs{\idy_1 \ldots \idy_{m_i}}{\ide_i}}) = \mkBindr{\idf_i}{}{\mkRhs{\absids(\idf_i)\; \idy_1 \ldots \idy_{m_i}}{\ide_i}} \\
 \]
 
 \todo{"Implementing functional languages: a tutorial" calls this the \emph{abstraction step}.}
@@ -302,7 +304,7 @@ The result is again wrapped up in a |let| and returned\footnote{Similar to the a
 What remains is the trivial, but noisy definition of the \liftb traversal:
 
 \[
-\liftb_\absids(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\rhs{\idy_1 \ldots \idy_{m_i}}{\ide_i}}) = \idiom{\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\rhs{\idy_1 \ldots \idy_{m_i}}{\eff{\lift_\absids(\ide_i)}}}} \\
+\liftb_\absids(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\mkRhs{\idy_1 \ldots \idy_{m_i}}{\ide_i}}) = \idiom{\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\mkRhs{\idy_1 \ldots \idy_{m_i}}{\eff{\lift_\absids(\ide_i)}}}} \\
 \]
 
 \section{When to lift} % Or: Analysis?
@@ -365,7 +367,8 @@ unnecessary.
 
 \paragraph{Closure growth.} \ref{s1} means we don't allocate a closure on the
 heap for the |let| binding. On the other hand, \ref{s3} might increase or
-decrease heap allocation. Consider this example:
+decrease heap allocation, which can be captured by a metric we call
+\emph{closure growth}. Consider this example:
 
 \begin{code}
 let f = [x y] \a b -> ...
@@ -386,7 +389,7 @@ Just counting the number of variables occurring in closures, the effect of
 closure (no need to close over the top-level |f_up|), while simultaneously
 enlarging it with |f|'s former free variable |y|. The new occurrence of |x|
 doesn't contribute to closure growth, because it already occurred in |g| prior
-to lifting. The net result is a reduction of two slots, so  lifting |f| seems
+to lifting. The net result is a reduction of two slots, so lifting |f| seems
 worthwhile. In general:
 
 \begin{introducecrit}
@@ -462,7 +465,7 @@ let f = [x y] \a b -> ...
 in g 5
 \end{code}
 
-We concluded that lifting |f| would be beneficial, saving us allocation of one free variable slot.
+We concluded that lifting |f| would be beneficial, saving us allocation of two free variable slots.
 There are two effects at play here.
 Not having to allocate the closure of |f| due to \ref{s1} always leads to a one-time benefit.
 Simultaneously, each closure occurrence of |f| would be replaced by its referenced free variables.
@@ -500,34 +503,43 @@ in g 1 + g 2 + g 3
 Here, the closure of |h_1| grows by one, whereas that of |h_2| shrinks by one, cancelling each other out.
 Hence there is no actual closure growth happening under the multi-shot binding |g| and |f| is good to lift.
 
-The solution is to denote closure growth in the min-plus algebra $\zinf = \mathbb{Z} \cup \{\infty\}$ and denote positive closure growth under a multi-shot lambda by $\infty$.
+The solution is to denote closure growth in the (not quite max-plus) algebra $\zinf = \mathbb{Z} \cup \{\infty\}$ and denote positive closure growth under a multi-shot lambda by $\infty$.
 
 \subsubsection{Design}
 
-Applied to our simple STG language, we can define a function $\cg$ with the following signature:
+Applied to our simple STG language, we can define a function $\cg$ (short for closure growth) with the following signature:
+\todo{Maybe add the syntactic sort we operate on as a superscript?}
 
 \[
 \cg_{\mathunderscore\,\mathunderscore}(\mathunderscore) \colon \mathcal{P}(\var) \to \mathcal{P}(\var) \to \expr \to \zinf
 \]
 
-Given two sets of variables for added and removed closure variables, respectively, it maps expressions to the closure growth resulting from 
+Given two sets of variables for added and removed closure variables,
+respectively, it maps expressions to the closure growth resulting from 
 \begin{itemize}
-\item adding variables from the first set everywhere a variable from the second set is referenced 
+\item adding variables from the first set everywhere a variable from the second
+      set is referenced 
 \item and removing all closure variables mentioned in the second set.
 \end{itemize}
 
-In the lifting algorithm from \cref{sec:trans}, \cg would be consulted as part of the lifting decision to estimate the total effect on allocations like this,
+In the lifting algorithm from \cref{sec:trans}, \cg would be consulted as part
+of the lifting decision to estimate the total effect on allocations.  Assuming
+we were to decide whether to lift the binding group $\overline{\idf_i}$ out of
+an expression $\mkLetr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idy_1 \ldots
+\idy_{m_i}}{\ide_i}{\ide}$, the following expression conservatively estimates
+the effects on heap allocation for performing the lift:
 
 \[
-\cg_{\absids'(\idf_1)\,\{\overline{\idf_i}\}}(\mkLetr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idy_1 \ldots \idy_{m_i}}{\ide_i}{\ide}) - \sum_i n_i
+\cg_{\absids'(\idf_1)\,\{\overline{\idf_i}\}}(\mkLetr{\idf_i}{}{\idx_1 \ldots \idx_{n_i} \idy_1 \ldots \idy_{m_i}}{\ide_i}{\ide}) - \sum_i n_i
 \]
 
-\todo{Written as above, \cg will also take the closures we are about to lift into the equation, which is wrong. Think of an elegant workaround}
+With the \emph{required set} $\absids'(\idf_1)$ passed as the first argument and with $\{\overline{\idf_i}\}$ for the second set (\ie the binders for which lifting is to be decided).
 
-with the \emph{required} set $\absids'(\idf_1)$ as the first argument and with $\{\overline{\idf_i}\}$ for the second set (\ie the binders for which lifting is to be decided).
-The expression for which lifting is decided would be the whole |let| expression of the binding in question.
-The resulting closure growth is entirely due to \ref{s3}, so we include the beneficial effect of \ref{s1} into the equation by discounting the sizes of the closures we would no longer allocate.
-This expression conservatively estimates the effects on heap allocation.
+Note that we logically lambda-lifted the binding group in question without actually floating out the binding.
+The reasons for that are twofold:
+Firstly, the reductions in closure allocation resulting from that lift are accounted separately in the trailing sum expression, capturing the effects of \ref{s1}.
+Secondly, the lifted binding group isn't affected by closure growth (where there are no free variables, nothing can grow or shrink), which is entirely a symptom of \ref{s3}.
+
 In practice, we require that this metric is non-positive to allow the lambda lift.
 
 \subsubsection{Implementation}
@@ -535,35 +547,76 @@ In practice, we require that this metric is non-positive to allow the lambda lif
 The cases for variables and applications are trivial, because they don't allocate:
 \begin{alignat*}{2}
 \cg_{\added\removed}(\idx) &&{}={}& 0 \\
-\cg_{\added\removed}(\idf\; \idx_1 \ldots \idx_n) &&{}={}& 0 \\
+\cg_{\added\removed}(\idf\; \idx_1 \ldots \idx_n) &&{}={}& 0
 \end{alignat*}
-As before, the complexity hides in |let| bindings.
+As before, the complexity hides in |let| bindings and its syntactic components.
+We'll break them down one layer at a time. This makes the |let| rule itself
+nicely compositional, because it delegates most of its logic to $\cgb$:
 \[
-\cg_{\added\removed}(\mkLetr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idy_1 \ldots \idy_{m_i}}{\ide_i}{\ide}) = \growth \\
+\cg_{\added\removed}(\mkLetb{\idbs}{\ide}) = \cgb_{\added\removed}(\idbs) + \cg_{\added\removed}(\ide)
 \]
 
-With the declarations out of the way, here comes the main act:
+Next, we look at how binding groups are measured:
+
 \begin{alignat*}{2}
-\growth &&{}={}& \cg_{\added\removed}(\ide) + \sum_i \local_i + \sum_i \fun{max}\,0\,\cg_{\added\removed}(\ide_i) * \mu_i \\
-\local_i &&{}={}&
+\cgb_{\added\removed}(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idr_i})&&{}={}& \sum_i \growth_i + \sum_i \cgr_{\added\removed}(\idr_i) \\
+\growth_i &&{}={}&
   \begin{cases}
     \card{\added \setminus \{\idx_1,\ldots,\idx_{n_i}\}} - \nu_i, & \text{if $\nu_i > 0$} \\
     0, & \text{otherwise} \\
   \end{cases} \\
-\nu_i &&{}={}& \card{\{\idx_1,\ldots,\idx_{n_i}\} \cap \removed} \\
-\mu_i &&{}={}&
+\nu_i &&{}={}& \card{\{\idx_1,\ldots,\idx_{n_i}\} \cap \removed}
+\end{alignat*}
+
+The \growth component accounts for allocating each closure of the binding
+group. Whenever a closure mentions one of the variables to be removed (\ie
+$\removed$, the bindings to be lifted), we count the number of variables that
+are removed in $\nu$ and subtract them from the number of variables in $\added$
+(\ie the required set of the binding group to lift) that didn't occur in the
+closure before.
+
+The call to $\cgr$ accounts for closure growth of right-hand sides:
+
+\begin{alignat*}{2}
+\cgr_{\added\removed}(\mkRhs{\ldots}{\ide_i})&&{}={}& \cgr_{\added\removed}(\idr_i) * [\sigma, \tau] \\
+\sigma &&{}={}& 
   \begin{cases}
-    1, & \text{$\idf_i$ binds a one-shot lambda or thunk} \\
+    1, & \text{\ide is entered at least once} \\
+    0, & \text{otherwise} \\
+  \end{cases} \\
+\tau &&{}={}& 
+  \begin{cases}
+    0, & \text{\ide is never entered} \\
+    1, & \text{\ide is entered at most once} \\
+    1, & \text{the RHS is bound to a thunk} \\
     \infty, & \text{otherwise} \\
+  \end{cases} \\
+n * [\sigma, \tau] &&{}={}&
+  \begin{cases}
+    n * \sigma, & l < 0 \\
+    n * \tau,   & \text{otherwise} \\
   \end{cases} \\
 \end{alignat*}
 
-The \local component of \growth accounts for allocating each closure of the |let| binding.
-Whenever a closure mentions one of the variables to be removed (\ie $\removed$, the bindings to be lifted), we count the number of variables that are removed in $\nu$ and subtract them from the number of variables from $\added$ (\ie the required set of the binding group to lift) that didn't occur in the closure before.
+The right-hand sides of a |let| binding might or might not be entered, so we
+cannot rely on a beneficial negative closure growth to occur in all cases.
+Likewise, without any further analysis information, we can't say if a
+right-hand side is entered multiple times. Hence, the uninformed conservative
+approximation would be to return $\infty$ whenever there is positive closure
+growth in a RHS and 0 otherwise.
 
-The right-hand sides of the |let| binding might or might not be entered, so we cannot rely on a beneficial negative closure growth to occur in all cases.
-Therefore, we bound closure growth from right-hand sides to be non-negative for a conservative estimate. \todo{We could look at the strictness info to see if it was always called}
-Additionally, we handle multi-shot lambdas by multiplying with $\infty$.
+That would be disastrous for analysis precision! Fortunately, GHC has access to
+cardinality information from its demand analyser \todo{What to cite? Progress
+on the new demand analysis paper seemed to have stalled. The cardinality paper?
+The old demand analysis paper from 2006? Both?}. Demand analysis estimates lower
+and upper bounds ($\sigma$ and $\tau$ above) on how many times a RHS is entered
+relative to its defining expression.
+
+Most importantly, this identifies one-shot lambdas ($\tau = 1$), under which
+case a positive closure growth doesn't lead to an infinite closure growth for
+the whole RHS. But there's also the beneficial case of negative closure growth
+under a strictly called lambda ($\sigma = 1$), where we gain precision by not
+having to fall back to returning 0.
 
 \vspace{2mm}
 
