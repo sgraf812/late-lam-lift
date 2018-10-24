@@ -13,7 +13,7 @@ $(BUILD)/$(BASE).tex: $(BASE).lhs custom.fmt
 
 $(BUILD)/$(BASE).pdf: $(BUILD)/$(BASE).tex $(BUILD)/references.bib references.bib
 	mkdir -p $(BUILD)
-	rubber --pdf --into $(BUILD) $<
+	(TEXINPUTS=$(TEXINPUTS):style latexmk -f -pdf -jobname=build/$(BASE) -interaction=nonstopmode $< > /dev/null 2>&1) || (echo "Error! running rubber" && rubber -I`pwd` --pdf --into $(BUILD) $<)
 
 $(BASE).pdf: $(BUILD)/$(BASE).pdf
 	mv $< $@ # atomic update
