@@ -58,7 +58,7 @@
 \newcommand{\lift}{\fun{lift}}
 \newcommand{\liftv}{\fun{lift-var}}
 \newcommand{\liftb}{\fun{lift-bind}}
-\newcommand{\liftl}{\fun{lambda-lift}}
+\newcommand{\abs}{\fun{abstract}}
 \newcommand{\expand}{\fun{expand-closures}}
 \newcommand{\decide}{\fun{decide-lift}}
 \newcommand{\recurse}{\fun{recurse}}
@@ -179,7 +179,6 @@ We'll define a side-effecting function, \lift, recursively over the term structu
 \[
 \lift_{\mathunderscore}(\mathunderscore) \colon \expander \to \expr \to \writer{\bindgr}{\expr}
 \]
-\todo{Why not formulate this as inference rules?}
 \todo{I think the occurrences of body expression etc. need to be meta-variables.}
 
 As its first argument, \lift takes an \expander, which is a partial function from lifted binders to their sets of required variables.
@@ -253,7 +252,6 @@ Syntactically heavy |let| wrapping is outsourced into a helper function \wrap:
 
 Hardly surprising, the meat of the transformation hides in the handling of |let| bindings.
 This can be broken down into three separate functions:
-
 \[
 \lift_\absids(\mkLetb{\idbs}{\ide}) = (\recurse(\ide) \circ \decide_\absids \circ \expand_\absids)(\idbs)
 \]
@@ -281,34 +279,29 @@ This can be broken down into three separate functions:
 \begin{alignat*}{2}
 \decide_\absids(\idbs) &&{}={}&
   \begin{cases}
-    (\emptybind,\absids',\liftl_{\absids'}(\idbs)), & \text{if \idbs should be lifted} \\
+    (\emptybind,\absids',\abs_{\absids'}(\idbs)), & \text{if \idbs should be lifted} \\
     (\idbs, \absids, \emptybind), & \text{otherwise} \\
   \end{cases} \\
 \text{where}\qquad &&& \\
-\absids' &&{}={}& \absids\left[\overline{\idf_i \mapsto \fvs(\idbs)}\right] \text{for } \mkBindr{\idf_i}{\mathunderscore}{\mathunderscore} = \idbs \\
+\absids' &&{}={}& \absids\left[\overline{\idf_i \mapsto \fvs(\idbs)}\right] \text{for } \mkBindr{\idf_i}{\mathunderscore}{\mathunderscore} = \idbs
 \end{alignat*}
 
 \decide returns a triple of a binding group that remains with the local |let| binding, an updated expander and a binding group prepared to be lifted to top-level.
-Depending on whether the argument $\idbs$ is decided to be lifted or not, either the returned local binding group or the $\liftl$ed binding group is empty.
+Depending on whether the argument $\idbs$ is decided to be lifted or not, either the returned local binding group or the $\abs$ed binding group is empty.
 In case the binding is to be lifted, the expander is updated to map the newly lifted bindings to their required set.
-
 \[
-\fvs(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\mathunderscore}) = \bigcup_i \{\idx_1, \ldots, \idx_{n_i} \} \setminus \overline{\idf_i} \\
+\fvs(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\mathunderscore}) = \bigcup_i \{\idx_1, \ldots, \idx_{n_i} \} \setminus \overline{\idf_i}
 \]
 
 The required set consists of the free variables of each binding's RHS, conveniently available in syntax, minus the defined binders themselves.
-Note that the required set of each binder of the same binding group will be identical.
-
+Note that the required set of each binder of the same binding group will be identical (\cf begin of \cref{sec:trans}).
 \[
-\liftl_\absids(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\mkRhs{\idy_1 \ldots \idy_{m_i}}{\ide_i}}) = \mkBindr{\idf_i}{}{\mkRhs{\absids(\idf_i)\; \idy_1 \ldots \idy_{m_i}}{\ide_i}} \\
+\abs_\absids(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\mkRhs{\idy_1 \ldots \idy_{m_i}}{\ide_i}}) = \mkBindr{\idf_i}{}{\mkRhs{\absids(\idf_i)\; \idy_1 \ldots \idy_{m_i}}{\ide_i}}
 \]
 
-\todo{"Implementing functional languages: a tutorial" calls this the \emph{abstraction step}.}
-
-The syntactic lambda lifting is performed in \liftl, where closure variables are removed in favor of a number of parameters, one for each element of the respective binding's required set.
-
+The abstraction step is performed in \abs, where closure variables are removed in favor of additional parameters, one for each element of the respective binding's required set.
 \[
-\recurse(\ide)(\idbs, \absids, \idlbs) = \liftb_\absids(\idlbs) >\!\!>\!\!= \note >\!\!> \idiom{\mkLetb{\eff{\liftb_\absids(\idbs)}}{\eff{\lift_\absids(\ide)}}} \\
+\recurse(\ide)(\idbs, \absids, \idlbs) = \liftb_\absids(\idlbs) >\!\!>\!\!= \note >\!\!> \idiom{\mkLetb{\eff{\liftb_\absids(\idbs)}}{\eff{\lift_\absids(\ide)}}}
 \]
 
 In the final step of the |let| \enquote{pipeline}, the algorithm recurses into every subexpression of the |let| binding.
@@ -621,7 +614,7 @@ approximation would be to return $\infty$ whenever there is positive closure
 growth in a RHS and 0 otherwise.
 
 That would be disastrous for analysis precision! Fortunately, GHC has access to
-cardinality information from its demand analyser \todo{What to cite? Progress
+cardinality information from its demand analyser \parencite{dmd} \todo{What to cite? Progress
 on the new demand analysis paper seemed to have stalled. The cardinality paper?
 The old demand analysis paper from 2006? Both?}. Demand analysis estimates lower
 and upper bounds ($\sigma$ and $\tau$ above) on how many times a RHS is entered
