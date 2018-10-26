@@ -115,13 +115,15 @@
 \section{Transformation}
 \label{sec:trans}
 
-Lambda lifting is a well-known technique \parencite{Johnsson1985}.
-Although Johnsson's original algorithm runs in wort-case cubic time relative to the size of the input program, \textcite{optimal-lift} gave an algorithm that runs in $\mathcal{O}(n^2)$.
+Lambda lifting is a well-known transformation \parencite{Johnsson1985}.
+Although Johnsson's original algorithm runs in worst-case cubic time relative to the size of the input program, \textcite{optimal-lift} gave an algorithm that runs in $\mathcal{O}(n^2)$.
 
-Our lambda lifting transformation is unique in that it operates on terms of the \emph{spineless tagless G-machine} (STG) \parencite{stg} as currently implemented \parencite{fastcurry} in GHC.
-This means we can assume that the nesting structure of bindings corresponds to the condensation (the directed acyclic graph of strongly connected components) of the dependency graph. \todo{less detail? less language?}
-Additionally, every binding in a (recursive) |let| binding is annotated with the free variables it closes over.
-The combination of both properties allows efficient construction of the set of \emph{required} \todo{any better names? former free variables, abstraction variables...} variables for a total complexity of $\mathcal{O}(n^2)$, as we shall see. \todo{Shall we? Analysis performance doesn't seem to be a problem thus far}
+Our instance of lambda lifting is unique in that it operates on terms of the \emph{spineless tagless G-machine} (STG) \parencite{stg} as currently implemented \parencite{fastcurry} in GHC and in that we only lift selectively.
+The extension of Johnsson's formulation to STG terms is straight-forward, although it's still worth showing how the transformation integrates the decision logic for which bindings are going to be lambda lifted.
+
+Central to the transformation is the construction of the set of \emph{required variables} \textcite{Johnsson1985} for a binding.
+Because we operate late in the pipeline of GHC, we can assume that every recursive binding group corresponds to a strongly-connected component of the dependency graph.
+This means that construction of the required set simplifies to joining the free variable sets of the binding group, once, for the whole binding group.
 
 \subsection{Syntax}
 
