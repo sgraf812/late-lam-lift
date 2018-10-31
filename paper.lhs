@@ -636,6 +636,10 @@ In particular, this includes allocated closures and their free variables, but al
 Additionally, there are the usual \enquote{glue operators}, such as sequence (\eg the case scrutinee is evaluated whenever one of the case alternatives is), choice (\eg one of the case alternatives is evaluated \emph{mutually exclusively}) and an identity (\ie literals don't allocate).
 This also helps to split the complex |let| case into more manageable chunks.
 
+\section{Related Work}
+
+\textcite{Johnsson1985} was the first to conceive lambda lifting as a code generation scheme for functional languages.
+
 \section{Evaluation}
 \label{sec:eval}
 
