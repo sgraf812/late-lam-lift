@@ -40,6 +40,7 @@
 \newcommand{\idlbs}{\id{lbs}}
 \newcommand{\ide}{\id{e}}
 \newcommand{\idf}{\id{f}}
+\newcommand{\idg}{\id{g}}
 \newcommand{\idm}{\id{m}}
 \newcommand{\idr}{\id{r}}
 \newcommand{\closure}[1]{[\mskip1.5mu #1 \mskip1.5mu]}
@@ -122,7 +123,7 @@
 \label{sec:trans}
 
 Lambda lifting is a long- and well-known transformation
-\parencite{Johnsson1985}, traditionally used for compiling functional programs
+\parencite{lam-lift}, traditionally used for compiling functional programs
 to supercombinators.  Our use case for lambda lifting is unique in that it
 operates on terms of the \emph{spineless tagless G-machine} (STG)
 \parencite{stg} as currently implemented \parencite{fastcurry} in GHC and in
@@ -131,9 +132,9 @@ to STG terms is straight-forward, but it's still worth showing how the
 transformation integrates the decision logic for which bindings are going to be
 lambda lifted.
 
-Central to the transformation is the construction of the set of \emph{required
-variables} \textcite{Johnsson1985} for a binding.  Because we operate late in
-the pipeline of GHC, we can assume that every recursive binding group
+Central to the transformation is the construction of the \emph{required set} of
+extraneous parameters \parencite{optimal-lift} of a binding. Because we operate
+late in the pipeline of GHC, we can assume that every recursive binding group
 corresponds to a strongly-connected component of the dependency graph.  This
 means that construction of the required set simplifies to joining the free
 variable sets of the binding group, once, for the whole binding group.
@@ -141,7 +142,7 @@ variable sets of the binding group, once, for the whole binding group.
 \subsection{Syntax}
 
 Although STG is but a tiny language compared to typical surface languages such as Haskell, its definition \parencite{fastcurry} still contains much detail irrelevant to lambda lifting.
-As can be seen in \cref{fig:syntax}, we therefore adopt a simple lambda calculus with |let| bindings as in \textcite{Johnsson1985}, with a few STG-inspired features:
+As can be seen in \cref{fig:syntax}, we therefore adopt a simple lambda calculus with |let| bindings as in \textcite{lam-lift}, with a few STG-inspired features:
 
 \begin{enumerate}
 \item |let| bindings are annotated with the non-top-level free variables of the right-hand side (RHS) they bind
@@ -168,7 +169,7 @@ granular (and thus more easily understood) steps.
 
 \subsection{Algorithm}
 
-Our implementation extends the original formulation of \textcite{Johnsson1985} to STG terms, by exploiting and maintaining closure annotations.
+Our implementation extends the original formulation of \textcite{lam-lift} to STG terms, by exploiting and maintaining closure annotations.
 We will recap our variant of the algorithm in its whole here.
 It is assumed that all variables have unique names and that there is a sufficient supply of fresh names from which to draw.
 
@@ -184,7 +185,7 @@ We'll define a side-effecting function, \lift, recursively over the term structu
 As its first argument, \lift takes an \expander, which is a partial function from lifted binders to their sets of required variables.
 These are the additional variables we have to pass at call sites after lifting.
 The expander is extended every time we decide to lambda lift a binding.
-It plays a similar role as the $E_f$ set in \textcite{Johnsson1985}.
+It plays a similar role as the $E_f$ set in \textcite{lam-lift}.
 We write $\dom{\absids}$ for the domain of the expander $\absids$ and $\absids[\idx \mapsto S]$ to denote extension of the expander function, so that the result maps $\idx$ to $S$ and all other identifiers by delegating to $\absids$.
 
 The second argument is the expression that is to be lambda lifted.
@@ -541,9 +542,9 @@ the effects on heap allocation for performing the lift:
 \cg_{\absids'(\idf_1)\,\{\overline{\idf_i}\}}(\mkLetr{\idf_i}{}{\idx_1 \ldots \idx_{n_i} \idy_1 \ldots \idy_{m_i}}{\ide_i}{\ide}) - \sum_i n_i
 \]
 
-With the \emph{required set} $\absids'(\idf_1)$ passed as the first argument and with $\{\overline{\idf_i}\}$ for the second set (\ie the binders for which lifting is to be decided).
+With the required set $\absids'(\idf_1)$ passed as the first argument and with $\{\overline{\idf_i}\}$ for the second set (\ie the binders for which lifting is to be decided).
 
-Note that we logically lambda-lifted the binding group in question without actually floating out the binding.
+Note that we logically lambda lifted the binding group in question without actually floating out the binding.
 The reasons for that are twofold:
 Firstly, the reductions in closure allocation resulting from that lift are accounted separately in the trailing sum expression, capturing the effects of \ref{s1}.
 Secondly, the lifted binding group isn't affected by closure growth (where there are no free variables, nothing can grow or shrink), which is entirely a symptom of \ref{s3}.
@@ -638,7 +639,72 @@ This also helps to split the complex |let| case into more manageable chunks.
 
 \section{Related Work}
 
-\textcite{Johnsson1985} was the first to conceive lambda lifting as a code generation scheme for functional languages.
+\textcite{lam-lift} was the first to conceive lambda lifting as a code
+generation scheme for functional languages. Construction of the required set
+for each binding is formulated as the smallest solution of a system of set
+inequalities. 
+
+Although Johnsson's algorithm runs in $\mathcal{O}(n^3)$ time, there were
+several attempts to achieve its optimality (wrt. the minimal size of the
+required sets) with better asymptotics. As such, \textcite{optimal-lift} were
+the first to present an algorithm that simultaneously has optimal runtime in
+$\mathcal{O}(n^2)$ and computes minimal required sets. They also give a nice
+overview over previous approaches and highlight their shortcomings.
+
+That begs the question whether the somewhat careless transformation in
+\cref{sec:trans} has one or both of the desirable optimality properties of the
+algorithm by \textcite{optimal-lift}. \todo{As a separate theorem in
+\cref{sec:trans}?}
+
+At least for the situation within GHC, we loosely argue that the constructed
+required sets are minimal: Because by the time our lambda lifter runs, the
+occurrence analyser will have rearranged recursive groups into strongly
+connected components with respect to the dependency graph, up to lexical
+scoping. Now consider a variable $\idx \in \absids(\idf_i)$ in the required set
+of a |let| binding for the binding group $\overline{\idf_i}$.
+
+Suppose there exists $j$ such that $\idx \in \fvs(\idf_j)$, in which case
+$\idx$ must be part of the minimal set: Note that lexical scoping prevents
+coalescing a recursive group with their dominators in the call graph if they
+define variables that occur in the group. \textcite{optimal-lift} gave a
+convincing example that this was indeed what makes the quadratic time approach
+from \textcite{fast-lift} non-optimal with respect to the size of the required
+sets.
+
+When $\idx \in \fvs(\idf_j)$ for any $j$, $\idx$ must have been the result of
+expanding some function $\idg \in \fvs(\idf_j)$, with $\idx \in \absids(\idg)$.
+Lexical scoping dictates that $\idg$ is defined in an outer binding, an
+ancestor in the syntax tree, that is.  So, by induction over the pre-order
+traversal of the syntax tree employed by the transformation, we can assume that
+$\absids(\idg)$ must already have been minimal and therefore that $\idx$ is
+part of the minimal set of $\idf_i$.
+
+Regarding runtime: \textcite{optimal-lift} made sure that they only need to
+expand the free variables of at most one dominator that is transitively
+reachable in the call graph. We think it's possible to find this \emph{lowest
+upward vertical dependence} in a separate pass over the syntax tree, but we
+found the transformation to be sufficiently fast even in the presence of
+unnecessary variable expansions for a total of $\mathcal{O}(n^2)$ set
+operations. Ignoring needless expansions, the transformation performs
+$\mathcal{O}(n)$ set operations when merging free variable sets.\smallskip
+
+The selective lambda lifting scheme proposed follows an all or nothing
+approach: Either the binding is lifted to top-level or it is left untouched.
+The obvious extension to this approach is to only abstract out \emph{some} 
+free variables. If this would be combined with a subsequent float out pass,
+abstracting out the right variables (\ie those defined at the deepest level)
+could make for significantly less allocations when a binding can be floated out
+of a hot loop.  This is very similar to performing lambda lifting and then
+cautiously performing block sinking as long as it leads to beneficial
+opportunities to drop parameters, implementing a flexible lambda dropping pass
+\parencite{lam-drop}.
+
+Lambda dropping, or more specifically parameter dropping, has a close sibling
+in GHC in the form of the static argument transformation \parencite{santos} (SAT).
+As such, the new lambda lifter is pretty much undoing SAT.
+We argue that SAT is mostly an enabling transformation for the
+middleend and by the time our lambda lifter runs, these opportunities will
+have been exploited.
 
 \section{Evaluation}
 \label{sec:eval}
