@@ -637,6 +637,40 @@ In particular, this includes allocated closures and their free variables, but al
 Additionally, there are the usual \enquote{glue operators}, such as sequence (\eg the case scrutinee is evaluated whenever one of the case alternatives is), choice (\eg one of the case alternatives is evaluated \emph{mutually exclusively}) and an identity (\ie literals don't allocate).
 This also helps to split the complex |let| case into more manageable chunks.
 
+\section{Evaluation}
+\label{sec:eval}
+
+In order to assess effectiveness of our new optimisation, we measured
+performance on the \texttt{nofib} benchmark suite \parencite{nofib} against a
+GHC 8.6.1
+release\footnote{\url{https://github.com/ghc/ghc/tree/0d2cdec78471728a0f2c487581d36acda68bb941}}.
+
+We will first look at how our chosen parameterisation (\eg the optimisation
+with all heuristics activated as advertised) performs in comparison to the
+baseline. Subsequently, we will justify the choice by comparing with other
+parameterisations that selectively abandon or vary the heuristics of
+\cref{sec:analysis}.
+
+\subsection{Effectiveness}
+
+The results of comparing our chosen configuration with the baseline can be seen in \cref{tbl:ll}.
+
+\begin{table}
+  \centering
+  \begin{tabular}{lrrr}
+    \toprule
+    Program & \multicolumn{1}{c}{Bytes Allocated} & \multicolumn{1}{c}{Instructions executed} \\
+    \midrule
+    \input{tables/ll-nofib-table.tex}
+    \bottomrule
+  \end{tabular}
+  \caption{
+    Interesting programs with respect to instructions executed, from the same run as \cref{tbl:nofib}.
+    Excluded were those runs with improvements of less than 3\% and regressions of less than 1\%.
+  }
+  \label{tbl:ll}
+\end{table}
+
 \section{Related Work}
 
 \textcite{lam-lift} was the first to conceive lambda lifting as a code
@@ -705,40 +739,6 @@ As such, the new lambda lifter is pretty much undoing SAT.
 We argue that SAT is mostly an enabling transformation for the
 middleend and by the time our lambda lifter runs, these opportunities will
 have been exploited.
-
-\section{Evaluation}
-\label{sec:eval}
-
-In order to assess effectiveness of our new optimisation, we measured
-performance on the \texttt{nofib} benchmark suite \parencite{nofib} against a
-GHC 8.6.1
-release\footnote{\url{https://github.com/ghc/ghc/tree/0d2cdec78471728a0f2c487581d36acda68bb941}}.
-
-We will first look at how our chosen parameterisation (\eg the optimisation
-with all heuristics activated as advertised) performs in comparison to the
-baseline. Subsequently, we will justify the choice by comparing with other
-parameterisations that selectively abandon or vary the heuristics of
-\cref{sec:analysis}.
-
-\subsection{Effectiveness}
-
-The results of comparing our chosen configuration with the baseline can be seen in \cref{tbl:ll}.
-
-\begin{table}
-  \centering
-  \begin{tabular}{lrrr}
-    \toprule
-    Program & \multicolumn{1}{c}{Bytes Allocated} & \multicolumn{1}{c}{Instructions executed} \\
-    \midrule
-    \input{tables/ll-nofib-table.tex}
-    \bottomrule
-  \end{tabular}
-  \caption{
-    Interesting programs with respect to instructions executed, from the same run as \cref{tbl:nofib}.
-    Excluded were those runs with improvements of less than 3\% and regressions of less than 1\%.
-  }
-  \label{tbl:ll}
-\end{table}
 
 \listoftodos
 
