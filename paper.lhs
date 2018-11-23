@@ -587,7 +587,7 @@ closure before.
 The call to $\cgr$ accounts for closure growth of right-hand sides:
 
 \begin{alignat*}{2}
-\cgr_{\added\removed}(\mkRhs{\ldots}{\ide_i})&&{}={}& \cgr_{\added\removed}(\idr_i) * [\sigma, \tau] \\
+\cgr_{\added\removed}(\mkRhs{\ldots}{\ide})&&{}={}& \cg_{\added\removed}(\ide) * [\sigma, \tau] \\
 \sigma &&{}={}& 
   \begin{cases}
     1, & \text{\ide is entered at least once} \\
@@ -602,7 +602,7 @@ The call to $\cgr$ accounts for closure growth of right-hand sides:
   \end{cases} \\
 n * [\sigma, \tau] &&{}={}&
   \begin{cases}
-    n * \sigma, & l < 0 \\
+    n * \sigma, & n < 0 \\
     n * \tau,   & \text{otherwise} \\
   \end{cases} \\
 \end{alignat*}
