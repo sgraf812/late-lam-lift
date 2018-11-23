@@ -445,7 +445,7 @@ in mapF_up f [1, 2, 3]
 % These kind of slow calls can never actually occur, because we lift only known functions.
 %
 % \paragraph{Slow call patterns.} \todo{Align this with the previous paragraph} GHC employs the eval/apply model \cite{fastcurry} for translating function calls. Unknown function calls are lowered as calls to generic apply functions, which are specialised for specific argument patterns, \eg varying on the number of accepted arguments. If there is no matching generic apply function for the given argument pattern, the call is split up into a succession of multiple generic apply calls, allocating partial applications for each but the last generic apply call. Thus, we want to avoid turning slow calls into such \emph{very slow} calls.
-% 
+%
 % \begin{introducecrit}
 %   \item Don't lift a binding when doing so would turn a slow unknown call into a very slow unknown call \todo{call these fast and slow unknown calls instead? Easily confused with fast and slow entrypoints, which are related, but different}
 % \end{introducecrit}
@@ -524,10 +524,10 @@ Applied to our simple STG language, we can define a function $\cg$ (short for cl
 \]
 
 Given two sets of variables for added and removed closure variables,
-respectively, it maps expressions to the closure growth resulting from 
+respectively, it maps expressions to the closure growth resulting from
 \begin{itemize}
 \item adding variables from the first set everywhere a variable from the second
-      set is referenced 
+      set is referenced
 \item and removing all closure variables mentioned in the second set.
 \end{itemize}
 
@@ -588,12 +588,12 @@ The call to $\cgr$ accounts for closure growth of right-hand sides:
 
 \begin{alignat*}{2}
 \cgr_{\added\removed}(\mkRhs{\ldots}{\ide})&&{}={}& \cg_{\added\removed}(\ide) * [\sigma, \tau] \\
-\sigma &&{}={}& 
+\sigma &&{}={}&
   \begin{cases}
     1, & \text{\ide is entered at least once} \\
     0, & \text{otherwise} \\
   \end{cases} \\
-\tau &&{}={}& 
+\tau &&{}={}&
   \begin{cases}
     0, & \text{\ide is never entered} \\
     1, & \text{\ide is entered at most once} \\
