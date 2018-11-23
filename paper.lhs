@@ -675,8 +675,8 @@ The results of comparing our chosen configuration with the baseline can be seen 
 
 \textcite{lam-lift} was the first to conceive lambda lifting as a code
 generation scheme for functional languages. Construction of the required set
-for each binding is formulated as the smallest solution of a system of set
-inequalities. 
+of free variables for each binding is formulated as the smallest solution of a
+system of set inequalities.
 
 Although Johnsson's algorithm runs in $\mathcal{O}(n^3)$ time, there were
 several attempts to achieve its optimality (wrt. the minimal size of the
@@ -688,7 +688,7 @@ overview over previous approaches and highlight their shortcomings.
 That begs the question whether the somewhat careless transformation in
 \cref{sec:trans} has one or both of the desirable optimality properties of the
 algorithm by \textcite{optimal-lift}. \todo{As a separate theorem in
-\cref{sec:trans}?}
+\cref{sec:trans} or the appendix?}\smallskip
 
 At least for the situation within GHC, we loosely argue that the constructed
 required sets are minimal: Because by the time our lambda lifter runs, the
@@ -720,11 +720,30 @@ upward vertical dependence} in a separate pass over the syntax tree, but we
 found the transformation to be sufficiently fast even in the presence of
 unnecessary variable expansions for a total of $\mathcal{O}(n^2)$ set
 operations. Ignoring needless expansions, the transformation performs
-$\mathcal{O}(n)$ set operations when merging free variable sets.\smallskip
+$\mathcal{O}(n)$ set operations when merging free variable sets.\medskip
+
+Operationally, an STG function is supplied a pointer to a record of its free
+variables as the first argument. This closure pointer is similar to how
+object-oriented languages tend to implement the \texttt{this} pointer.
+References to free variables are resolved indirectly through the closure
+pointer, mimicing access of a heap-allocated record. From this perspective,
+every function in the program already is a supercombinator, taking an implicit
+first parameter. From this perspective, lambda lifting STG terms looks more
+like an \emph{unpacking} of the closure record into multiple arguments, similar
+to performing Scalar Replacement \parencite{scalar-replacement} on the
+\texttt{this} parameter or what the worker-wrapper transformation
+\parencite{ww} achieves. The situation is a little different to performing the
+worker-wrapper split in that there's no need for strictness or usage analysis
+to be involved. Similar to type class dictionaries, there's no non-termination
+hiding in closure records. At the same time, closure records are defined with
+the sole purpose to carry all free variables for a particular function and a
+prior free variable analysis guarantees that the closure record will only
+contain free variables that are actually used in the body of the
+function.\smallskip
 
 The selective lambda lifting scheme proposed follows an all or nothing
 approach: Either the binding is lifted to top-level or it is left untouched.
-The obvious extension to this approach is to only abstract out \emph{some} 
+The obvious extension to this approach is to only abstract out \emph{some}
 free variables. If this would be combined with a subsequent float out pass,
 abstracting out the right variables (\ie those defined at the deepest level)
 could make for significantly less allocations when a binding can be floated out
