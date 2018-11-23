@@ -122,15 +122,14 @@
 \section{Transformation}
 \label{sec:trans}
 
-Lambda lifting is a long- and well-known transformation
-\parencite{lam-lift}, traditionally used for compiling functional programs
-to supercombinators.  Our use case for lambda lifting is unique in that it
-operates on terms of the \emph{spineless tagless G-machine} (STG)
-\parencite{stg} as currently implemented \parencite{fastcurry} in GHC and in
-that we only lift \emph{selectively}.  The extension of Johnsson's formulation
-to STG terms is straight-forward, but it's still worth showing how the
-transformation integrates the decision logic for which bindings are going to be
-lambda lifted.
+Lambda lifting is a well-known transformation \parencite{lam-lift},
+traditionally used for compiling functional programs to supercombinators.  Our
+use case for lambda lifting is unique in that it operates on terms of the
+\emph{spineless tagless G-machine} (STG) \parencite{stg} as currently
+implemented \parencite{fastcurry} in GHC and in that we only lift
+\emph{selectively}.  The extension of Johnsson's formulation to STG terms is
+straight-forward, but it's still worth showing how the transformation
+integrates the decision logic for which bindings are going to be lambda lifted.
 
 Central to the transformation is the construction of the \emph{required set} of
 extraneous parameters \parencite{optimal-lift} of a binding. Because we operate
@@ -349,6 +348,7 @@ Naming seemingly obvious things this way means we can precisely talk about
 next.
 
 \subsection{Operational consequences}
+\label{ssec:op}
 
 We now ascribe operational symptoms to combinations of syntactic effects. These
 symptoms justify the derivation of heuristics which will decide when \emph{not}
@@ -414,7 +414,7 @@ opportunities. We discuss this further in \cref{ssec:cg}.
 \paragraph{Calling Convention.} \ref{s4} means that more arguments have to be passed. Depending on the target architecture, this entails more stack accesses and/or higher register pressure. Thus
 
 \begin{introducecrit}
-  \item Don't lift a binding when the arity of the resulting top-level definition exceeds the number of available argument registers of the employed calling convention (\eg 5 arguments for GHC on x86\_64)
+  \item \label{h:cc} Don't lift a binding when the arity of the resulting top-level definition exceeds the number of available argument registers of the employed calling convention (\eg 5 arguments for GHC on x86\_64)
 \end{introducecrit}
 
 One could argue that we can still lift a function when its arity won't change.
@@ -439,7 +439,7 @@ in mapF_up f [1, 2, 3]
 \end{code}
 
 \begin{introducecrit}
-  \item Don't lift a binding when doing so would turn known calls into unknown calls
+  \item \label{h:known} Don't lift a binding when doing so would turn known calls into unknown calls
 \end{introducecrit}
 
 % These kind of slow calls can never actually occur, because we lift only known functions.
@@ -648,12 +648,37 @@ release\footnote{\url{https://github.com/ghc/ghc/tree/0d2cdec78471728a0f2c487581
 We will first look at how our chosen parameterisation (\eg the optimisation
 with all heuristics activated as advertised) performs in comparison to the
 baseline. Subsequently, we will justify the choice by comparing with other
-parameterisations that selectively abandon or vary the heuristics of
+parameterisations that selectively drop or vary the heuristics of
 \cref{sec:analysis}.
 
 \subsection{Effectiveness}
 
 The results of comparing our chosen configuration with the baseline can be seen in \cref{tbl:ll}.
+
+It shows that approximating closure growth payed off: There was no benchmark
+that increased in heap allocations, for a total reduction of 0.8\%. On the
+other hand, it's hardly surprising, since we designed our analysis to be
+conservative with respect to allocations and the transformation turns heap
+allocation into possible register and stack allocation, which is not
+incorporated in any numbers.
+
+It's more informative to look at the relative number of instructions executed
+instead.  It is revealed by \texttt{n-body} that a reduction in allocation
+doesn't necessarily lead to better runtime: Although allocations went down
+rather drastically by over 20\%, the number of executed instructions stayed the
+same. The worst regression happened in \texttt{k-nucleotide}, where the
+transformed program executed 2\% more instructions with only a minor effect on
+allocations. In most of the other cases, the instruction count went down for a
+total reduction of 0.3\%, so exploiting the correlation with closure growth
+payed out.
+
+Ultimately, the user doesn't care for either allocations or number of executed
+instructions. What matters at the end of the day is runtime on actual
+hardware! \Cref{tbl:ll-run} shows significant runtime results for
+\texttt{nofib}. A mean reduction in runtime of 1.0\% was achieved. Because of
+low-level wibbles such as non-determinism in code layout we don't think it's
+particularly revealing to pin-point these improvements to individual
+benchmarks. \todo{Then why include them at all?}
 
 \begin{table}
   \centering
@@ -665,10 +690,95 @@ The results of comparing our chosen configuration with the baseline can be seen 
     \bottomrule
   \end{tabular}
   \caption{
-    Interesting programs with respect to instructions executed, from the same run as \cref{tbl:nofib}.
-    Excluded were those runs with improvements of less than 3\% and regressions of less than 1\%.
+    Interesting programs with respect to allocations and instruction count.
+    Excluded were those runs with improvements of less than 1\% and regressions
+    of less than 1\%.
   }
   \label{tbl:ll}
+\end{table}
+
+\begin{table}
+  \centering
+  \begin{tabular}{lrr}
+    \toprule
+    Program & \multicolumn{1}{c}{Instructions executed} \\
+    \midrule
+    \input{tables/ll-nofib-table-runtime.tex}
+    \bottomrule
+  \end{tabular}
+  \caption{
+    Interesting programs with respect to runtime. Excluded were those
+    benchmarks with less than 200 ms runtime or improvements of less than 1\%
+    and regressions of less than 1\%.
+  }
+  \label{tbl:ll-run}
+\end{table}
+
+\subsection{Exploring the design space}
+
+Now that we have established the effectiveness of late lambda lifting, it's
+time to justify our particular parameterisation of the analysis by looking
+at allocations and instruction count of particular parameterisations.
+
+Referring back to the five heuristics from \cref{ssec:op}, it makes sense to
+turn the following knobs:
+
+\begin{itemize}
+  \item Do or do not consider closure growth in the lifting decision \ref{h:alloc}.
+  \item Vary the maximum number of parameters of a lifted recursive or
+    non-recursive function \ref{h:cc}.
+  \item Do or do not allow turning known calls into unknown calls \ref{h:known}.
+\end{itemize}
+
+\begin{table}
+  \centering
+  \begin{tabular}{lrrr}
+    \toprule
+    Program & \multicolumn{1}{c}{Bytes allocated} & \multicolumn{1}{c}{Instructions executed} \\
+    \midrule
+    %\input{tables/ll-c2.tex}
+    \bottomrule
+  \end{tabular}
+  \caption{
+    Comparison of our chosen parameterisation with one where we allow arbitrary
+    increases in allocations. Excluded were those benchmarks with improvements
+    of less than 1\% and regressions of less than 1\%.
+  }
+  \label{tbl:ll-alloc}
+\end{table}
+
+\begin{table}
+  \centering
+  \begin{tabular}{lrrr}
+    \toprule
+    Program & \multicolumn{2}{c}{Instructions executed} \\
+    \midrule
+    %\input{tables/ll-c3.tex}
+    \bottomrule
+  \end{tabular}
+  \caption{
+    Comparison of our chosen parameterisation with one where we allow more or less
+    arity of . Excluded were those benchmarks with improvements
+    of less than 1\% and regressions of less than 1\%.
+  }
+  \label{tbl:ll-alloc}
+\end{table}
+
+\begin{table}
+  \centering
+  \begin{tabular}{lrrr}
+    \toprule
+    Program & \multicolumn{1}{c}{Bytes allocated} & \multicolumn{1}{c}{Instructions executed} \\
+    \midrule
+    %\input{tables/ll-c4.tex}
+    \bottomrule
+  \end{tabular}
+  \caption{
+    Comparison of our chosen parameterisation with one where we allow turning
+    known into unknown calls. Excluded were those benchmarks with improvements
+    of less than 1\% and regressions of less than 1\%.
+  }
+  \label{tbl:ll-alloc}
 \end{table}
 
 \section{Related Work}
