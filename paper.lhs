@@ -653,65 +653,42 @@ parameterisations that selectively drop or vary the heuristics of
 
 \subsection{Effectiveness}
 
-The results of comparing our chosen configuration with the baseline can be seen in \cref{tbl:ll}.
+The results of comparing our chosen configuration with the baseline can be seen
+in \cref{tbl:ll}.
 
 It shows that approximating closure growth payed off: There was no benchmark
 that increased in heap allocations, for a total reduction of 0.8\%. On the
-other hand, it's hardly surprising, since we designed our analysis to be
+other hand that's hardly surprising, since we designed our analysis to be
 conservative with respect to allocations and the transformation turns heap
 allocation into possible register and stack allocation, which is not
-incorporated in any numbers.
+reflected in any numbers.
 
-It's more informative to look at the relative number of instructions executed
-instead.  It is revealed by \texttt{n-body} that a reduction in allocation
-doesn't necessarily lead to better runtime: Although allocations went down
-rather drastically by over 20\%, the number of executed instructions stayed the
-same. The worst regression happened in \texttt{k-nucleotide}, where the
-transformed program executed 2\% more instructions with only a minor effect on
-allocations. In most of the other cases, the instruction count went down for a
-total reduction of 0.3\%, so exploiting the correlation with closure growth
-payed out.
-
-Ultimately, the user doesn't care for either allocations or number of executed
-instructions. What matters at the end of the day is runtime on actual
-hardware! \Cref{tbl:ll-run} shows significant runtime results for
-\texttt{nofib}. A mean reduction in runtime of 1.0\% was achieved. Because of
-low-level wibbles such as non-determinism in code layout we don't think it's
+It's more informative to look at runtime measurements, where a total reduction
+of 0.7\% was achieved. Due to low-level wibbles such as non-determinism in code
+layout and parameterisation of the garbage collector, we don't think it's
 particularly revealing to pin-point these improvements to individual
-benchmarks. \todo{Then why include them at all?}
+benchmarks. Although exploiting the correlation with closure growth payed off,
+it seems that the biggest wins in allocations don't necessarily lead to big
+wins in runtime. \texttt{mate} is illuminating in that regard: Half of its
+speed-up stems from lifting the innermost function out of a hot loop, which
+in itself leaves allocations almost unchanged.
 
 \begin{table}
   \centering
   \begin{tabular}{lrrr}
     \toprule
-    Program & \multicolumn{1}{c}{Bytes Allocated} & \multicolumn{1}{c}{Instructions executed} \\
+    Program & \multicolumn{1}{c}{Bytes Allocated} & \multicolumn{1}{c}{Runtime} \\
     \midrule
     \input{tables/ll-nofib-table.tex}
     \bottomrule
   \end{tabular}
   \caption{
-    Interesting programs with respect to allocations and instruction count.
-    Excluded were those runs with improvements of less than 1\% and regressions
-    of less than 1\%.
+    Interesting programs with respect to allocations and runtime. Excluded were
+    those runs with improvements of less than 2\% and regressions of less than
+    1\%, as well as benchmarks with less than 100ms runtime and a few that are
+    known to be unstable.
   }
   \label{tbl:ll}
-\end{table}
-
-\begin{table}
-  \centering
-  \begin{tabular}{lrr}
-    \toprule
-    Program & \multicolumn{1}{c}{Instructions executed} \\
-    \midrule
-    \input{tables/ll-nofib-table-runtime.tex}
-    \bottomrule
-  \end{tabular}
-  \caption{
-    Interesting programs with respect to runtime. Excluded were those
-    benchmarks with less than 200 ms runtime or improvements of less than 1\%
-    and regressions of less than 1\%.
-  }
-  \label{tbl:ll-run}
 \end{table}
 
 \subsection{Exploring the design space}
