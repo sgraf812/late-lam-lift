@@ -13,7 +13,7 @@ $(BUILD)/$(BASE).tex: $(BASE).lhs custom.fmt
 	@echo "Generating $@..."
 	@lhs2TeX --poly $< > $@
 
-$(BUILD)/$(BASE).pdf: $(BUILD)/$(BASE).tex $(BUILD)/references.bib tables/ll-nofib-table.tex
+$(BUILD)/$(BASE).pdf: $(BUILD)/$(BASE).tex $(BUILD)/references.bib tables/*.tex
 	@mkdir -p $(BUILD)
 	@echo "Rebuilding $@..."
 	@(TEXINPUTS=$(TEXINPUTS):style latexmk -f -pdf -jobname=build/$(BASE) -interaction=nonstopmode $< > /dev/null 2>&1) || (echo "Error! running rubber" && rubber -I`pwd` --pdf --into $(BUILD) $<)

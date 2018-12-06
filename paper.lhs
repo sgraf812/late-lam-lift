@@ -654,7 +654,9 @@ parameterisations that selectively drop or vary the heuristics of
 \subsection{Effectiveness}
 
 The results of comparing our chosen configuration with the baseline can be seen
-in \cref{tbl:ll}.
+in \cref{tbl:ll}. Note that we excluded benchmarks that were running for less
+than 100ms from runtime measurements, indicated by a missing runtime entry. We
+also excluded benchmarks that were generally known to be unstable.
 
 It shows that approximating closure growth payed off: There was no benchmark
 that increased in heap allocations, for a total reduction of 0.8\%. On the
@@ -670,23 +672,20 @@ particularly revealing to pin-point these improvements to individual
 benchmarks. Although exploiting the correlation with closure growth payed off,
 it seems that the biggest wins in allocations don't necessarily lead to big
 wins in runtime. \texttt{mate} is illuminating in that regard: Half of its
-speed-up stems from lifting the innermost function out of a hot loop, which
+speedup stems from lifting the innermost function out of a hot loop, which
 in itself leaves allocations almost unchanged.
 
 \begin{table}
   \centering
-  \begin{tabular}{lrrr}
+  \begin{tabular}{lrr}
     \toprule
     Program & \multicolumn{1}{c}{Bytes Allocated} & \multicolumn{1}{c}{Runtime} \\
     \midrule
-    \input{tables/ll-nofib-table.tex}
+    \input{tables/base.tex}
     \bottomrule
   \end{tabular}
   \caption{
-    Interesting programs with respect to allocations and runtime. Excluded were
-    those runs with improvements of less than 2\% and regressions of less than
-    1\%, as well as benchmarks with less than 100ms runtime and a few that are
-    known to be unstable.
+    Interesting benchmark changes compared to the GHC 8.6.1 baseline.
   }
   \label{tbl:ll}
 \end{table}
@@ -694,65 +693,84 @@ in itself leaves allocations almost unchanged.
 \subsection{Exploring the design space}
 
 Now that we have established the effectiveness of late lambda lifting, it's
-time to justify our particular parameterisation of the analysis by looking
-at allocations and instruction count of particular parameterisations.
+time to justify our particular variant of the analysis by looking at subtly
+different parameterisations.
 
 Referring back to the five heuristics from \cref{ssec:op}, it makes sense to
-turn the following knobs:
+turn the following knobs in isolation:
 
 \begin{itemize}
   \item Do or do not consider closure growth in the lifting decision \ref{h:alloc}.
+  \item Do or do not allow turning known calls into unknown calls \ref{h:known}.
   \item Vary the maximum number of parameters of a lifted recursive or
     non-recursive function \ref{h:cc}.
-  \item Do or do not allow turning known calls into unknown calls \ref{h:known}.
 \end{itemize}
+
+\paragraph{Ignoring closure growth.} \Cref{tbl:ll-c2} shows the impact of
+deactivating the conservative checks for closure growth. This leads to big
+increases in allocation for benchmarks like \texttt{wheel-sieve1}, while it
+also shows that our analysis was too conservative to detect a worthwhile
+lifting opportunity in \texttt{rewrite}.
+
+Runtime results have to be read with care, but the mean difference is
+surprisingly insignificant. It's quite likely that shifting GC passes
+adulterate the results here, for the better or the worse\footnote{In case of
+\texttt{wheel-sieve2}, we verified by turning off garbage collection that
+indeed there is no actual regression, just an unfortunate default GC
+configuration.}. Even if ignoring closure growth checks was actually mildly
+beneficial from a runtime perspective, we argue that unpredictable increases in
+allocations like in \texttt{wheel-sieve1} are quite unacceptable: It's only a
+matter of time until some program would trigger exponential worst-case
+behavior.
 
 \begin{table}
   \centering
-  \begin{tabular}{lrrr}
+  \begin{tabular}{lrr}
     \toprule
-    Program & \multicolumn{1}{c}{Bytes allocated} & \multicolumn{1}{c}{Instructions executed} \\
+    Program & \multicolumn{1}{c}{Bytes allocated} & \multicolumn{1}{c}{Runtime} \\
     \midrule
-    %\input{tables/ll-c2.tex}
+    \input{tables/c2.tex}
     \bottomrule
   \end{tabular}
   \caption{
-    Comparison of our chosen parameterisation with one where we allow arbitrary
-    increases in allocations. Excluded were those benchmarks with improvements
-    of less than 1\% and regressions of less than 1\%.
+    Comparison of our chosen parameterisation with one where we allow
+    arbitrary increases in allocations.
   }
-  \label{tbl:ll-alloc}
+  \label{tbl:ll-c2}
 \end{table}
+
+\paragraph{Turning known calls into unknown calls.} \Cref{tbl:ll-c4}
 
 \begin{table}
   \centering
-  \begin{tabular}{lrrr}
+  \begin{tabular}{lrr}
     \toprule
-    Program & \multicolumn{2}{c}{Instructions executed} \\
+    Program & \multicolumn{1}{c}{Bytes allocated} & \multicolumn{1}{c}{Runtime} \\
     \midrule
-    %\input{tables/ll-c3.tex}
+    \input{tables/c4.tex}
+    \bottomrule
+  \end{tabular}
+  \caption{
+    Comparison of our chosen parameterisation with one where we allow turning
+    known into unknown calls.
+  }
+  \label{tbl:ll-c4}
+\end{table}
+
+\paragraph{Turning known calls into unknown calls.} \Cref{tbl:ll-c3}
+
+\begin{table}
+  \centering
+  \begin{tabular}{lrr}
+    \toprule
+    Program & \multicolumn{1}{c}{Bytes allocated} & \multicolumn{1}{c}{Instructions executed} \\
+    \midrule
+    %\input{tables/c3.tex}
     \bottomrule
   \end{tabular}
   \caption{
     Comparison of our chosen parameterisation with one where we allow more or less
     arity of . Excluded were those benchmarks with improvements
-    of less than 1\% and regressions of less than 1\%.
-  }
-  \label{tbl:ll-alloc}
-\end{table}
-
-\begin{table}
-  \centering
-  \begin{tabular}{lrrr}
-    \toprule
-    Program & \multicolumn{1}{c}{Bytes allocated} & \multicolumn{1}{c}{Instructions executed} \\
-    \midrule
-    %\input{tables/ll-c4.tex}
-    \bottomrule
-  \end{tabular}
-  \caption{
-    Comparison of our chosen parameterisation with one where we allow turning
-    known into unknown calls. Excluded were those benchmarks with improvements
     of less than 1\% and regressions of less than 1\%.
   }
   \label{tbl:ll-alloc}
