@@ -256,11 +256,12 @@ This can be broken down into three separate functions:
 \lift_\absids(\mkLetb{\idbs}{\ide}) = (\recurse(\ide) \circ \decide_\absids \circ \expand_\absids)(\idbs)
 \]
 
-\begin{enumerate}
-\item The first step is to expand closures mentioned in $\idbs$ with the help of $\absids$.
-\item Second, a heuristic (that of \cref{sec:analysis}, for example) decides whether to lift the binding group $\idbs$ to top-level or not.
-\item Depending on that decision, the binding group is \note{}d to be lifted to top-level and syntactic subentities of the |let| binding are traversed with the updated expander.
-\end{enumerate}
+The first step is to expand closures mentioned in $\idbs$ with the help of
+$\absids$. Then a heuristic (that of \cref{sec:analysis}, for example) decides
+whether to lift the binding group $\idbs$ to top-level or not. Depending on
+that decision, the binding group is \note{}d to be lifted to top-level and
+syntactic subentities of the |let| binding are traversed with the updated
+expander.
 
 \begin{alignat*}{2}
 \expand_\absids(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idr_i}) &&{}={}& \mkBindr{\idf_i}{\idy_1 \ldots \idy_{n'_i}}{\idr_i} \\
@@ -654,32 +655,26 @@ parameterisations that selectively drop or vary the heuristics of
 \subsection{Effectiveness}
 
 The results of comparing our chosen configuration with the baseline can be seen
-in \cref{tbl:ll}. Note that we excluded benchmarks that were running for less
-than 100ms from runtime measurements, indicated by a missing runtime entry. We
-also excluded benchmarks that were generally known to be unstable.
+in \cref{tbl:ll}.
 
-It shows that approximating closure growth payed off: There was no benchmark
-that increased in heap allocations, for a total reduction of 0.8\%. On the
-other hand that's hardly surprising, since we designed our analysis to be
-conservative with respect to allocations and the transformation turns heap
-allocation into possible register and stack allocation, which is not
-reflected in any numbers.
+It shows that there was no benchmark that increased in heap allocations, for a
+total reduction of 0.9\%. On the other hand that's hardly surprising, since we
+designed our analysis to be conservative with respect to allocations and the
+transformation turns heap allocation into possible register and stack
+allocation, which is not reflected in any numbers.
 
 It's more informative to look at runtime measurements, where a total reduction
-of 0.7\% was achieved. Due to low-level wibbles such as non-determinism in code
-layout and parameterisation of the garbage collector, we don't think it's
-particularly revealing to pin-point these improvements to individual
-benchmarks. Although exploiting the correlation with closure growth payed off,
-it seems that the biggest wins in allocations don't necessarily lead to big
-wins in runtime. \texttt{mate} is illuminating in that regard: Half of its
-speedup stems from lifting the innermost function out of a hot loop, which
-in itself leaves allocations almost unchanged.
+of 0.6\% was achieved. Although exploiting the correlation with closure growth
+payed off, it seems that the biggest wins in allocations don't necessarily lead
+to big wins in runtime: Allocations of \texttt{n-body} were reduced by 20.2\%
+while runtime was barely affected. Conversely, allocations of \texttt{lambda}
+hardly changed, yet it sped up considerably.
 
 \begin{table}
   \centering
   \begin{tabular}{lrr}
     \toprule
-    Program & \multicolumn{1}{c}{Bytes Allocated} & \multicolumn{1}{c}{Runtime} \\
+    Program & \multicolumn{1}{c}{Bytes allocated} & \multicolumn{1}{c}{Runtime} \\
     \midrule
     \input{tables/base.tex}
     \bottomrule
@@ -693,8 +688,8 @@ in itself leaves allocations almost unchanged.
 \subsection{Exploring the design space}
 
 Now that we have established the effectiveness of late lambda lifting, it's
-time to justify our particular variant of the analysis by looking at subtly
-different parameterisations.
+time to justify our particular variant of the analysis by looking at different
+parameterisations.
 
 Referring back to the five heuristics from \cref{ssec:op}, it makes sense to
 turn the following knobs in isolation:
@@ -709,19 +704,27 @@ turn the following knobs in isolation:
 \paragraph{Ignoring closure growth.} \Cref{tbl:ll-c2} shows the impact of
 deactivating the conservative checks for closure growth. This leads to big
 increases in allocation for benchmarks like \texttt{wheel-sieve1}, while it
-also shows that our analysis was too conservative to detect a worthwhile
-lifting opportunity in \texttt{rewrite}.
+also shows that our analysis was too conservative to detect worthwhile lifting
+opportunities in \texttt{grep} or \texttt{prolog}. Cursory digging reveals that
+in the case of \texttt{grep}, an inner loop of a list comprehension gets
+lambda lifted, where allocation only happens on the cold path for the
+particular input data of the benchmark. Weighing closure growth by an estimate
+of execution frequency \parencite{static-prof} could help here, but GHC
+does not currently offer such information.
 
-Runtime results have to be read with care, but the mean difference is
-surprisingly insignificant. It's quite likely that shifting GC passes
-adulterate the results here, for the better or the worse\footnote{In case of
-\texttt{wheel-sieve2}, we verified by turning off garbage collection that
-indeed there is no actual regression, just an unfortunate default GC
-configuration.}. Even if ignoring closure growth checks was actually mildly
-beneficial from a runtime perspective, we argue that unpredictable increases in
-allocations like in \texttt{wheel-sieve1} are quite unacceptable: It's only a
-matter of time until some program would trigger exponential worst-case
-behavior.
+The mean difference in runtime results is surprisingly insignificant. That
+rises the question whether closure growth estimation is actually worth the
+additional complexity. We argue that unpredictable increases in allocations
+like in \texttt{wheel-sieve1} are to be avoided: It's only a matter of time
+until some program would trigger exponential worst-case behavior.
+
+It's also worth noting that the arbitrary increases in total allocations didn't
+significantly influence runtime. That's because, by default, GHC's runtime
+system employs a copying garbage collector, where the time of each collection
+scales with the residency, which stayed about the same. A typical marking-based
+collector scales with total allocations and consequently would be punished by
+giving up closure growth checks, rendering future experiments in that direction
+infeasible.
 
 \begin{table}
   \centering
@@ -739,41 +742,56 @@ behavior.
   \label{tbl:ll-c2}
 \end{table}
 
-\paragraph{Turning known calls into unknown calls.} \Cref{tbl:ll-c4}
+\paragraph{Turning known calls into unknown calls.} In \cref{tbl:ll-c4} we see
+that turning known into unknown calls generally has a negative effect on
+runtime. There is \texttt{nucleic2}, but we suspect that its improvements are
+due to non-deterministic code layout changes.
+
+By analogy to turning statically bound to dynamically bound calls in the
+object-oriented world this outcome is hardly surprising.
 
 \begin{table}
   \centering
-  \begin{tabular}{lrr}
+  \begin{tabular}{lr}
     \toprule
-    Program & \multicolumn{1}{c}{Bytes allocated} & \multicolumn{1}{c}{Runtime} \\
+    Program & \multicolumn{1}{c}{Runtime} \\
     \midrule
     \input{tables/c4.tex}
     \bottomrule
   \end{tabular}
   \caption{
-    Comparison of our chosen parameterisation with one where we allow turning
-    known into unknown calls.
+    Runtime comparison of our chosen parameterisation with one where we allow
+    turning known into unknown calls.
   }
   \label{tbl:ll-c4}
 \end{table}
 
-\paragraph{Turning known calls into unknown calls.} \Cref{tbl:ll-c3}
+\paragraph{Varying the maximum arity of lifted functions.} \Cref{tbl:ll-c3}
+shows the effects of allowing different maximum arities of lifted functions.
+Regardless whether we allow less lifts due to arity (4--4) or more lifts
+(8--8), performance seems to degrade. Even allowing only slightly more
+recursive (5--6) or non-recursive (6--5) lifts doesn't seem to pay off.
+
+Taking inspiration in the number of argument registers dictated by the calling
+convention on AMD64 was a good call.
 
 \begin{table}
   \centering
-  \begin{tabular}{lrr}
+  \begin{tabular}{lrrrr}
     \toprule
-    Program & \multicolumn{1}{c}{Bytes allocated} & \multicolumn{1}{c}{Instructions executed} \\
+    Program & \multicolumn{4}{c}{Runtime} \\
+            & \multicolumn{1}{c}{4--4} & \multicolumn{1}{c}{5--6} & \multicolumn{1}{c}{6--5}  & \multicolumn{1}{c}{8--8} \\
     \midrule
-    %\input{tables/c3.tex}
+    \input{tables/c3.tex}
     \bottomrule
   \end{tabular}
   \caption{
-    Comparison of our chosen parameterisation with one where we allow more or less
-    arity of . Excluded were those benchmarks with improvements
-    of less than 1\% and regressions of less than 1\%.
+    Runtime comparison of our chosen parameterisation 5--5 with one where we
+    allow more or less maximum arity of lifted functions. A parameterisation
+    $n$--$m$ means maximum non-recursive arity was $n$ and maximum recursive
+    arity was $m$.
   }
-  \label{tbl:ll-alloc}
+  \label{tbl:ll-c3}
 \end{table}
 
 \section{Related Work}
