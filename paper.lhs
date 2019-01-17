@@ -828,7 +828,7 @@ convincing example that this was indeed what makes the quadratic time approach
 from \textcite{fast-lift} non-optimal with respect to the size of the required
 sets.
 
-When $\idx \in \fvs(\idf_j)$ for any $j$, $\idx$ must have been the result of
+When $\idx \notin \fvs(\idf_j)$ for any $j$, $\idx$ must have been the result of
 expanding some function $\idg \in \fvs(\idf_j)$, with $\idx \in \absids(\idg)$.
 Lexical scoping dictates that $\idg$ is defined in an outer binding, an
 ancestor in the syntax tree, that is.  So, by induction over the pre-order
