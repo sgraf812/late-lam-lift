@@ -794,7 +794,9 @@ convention on AMD64 was a good call.
   \label{tbl:ll-c3}
 \end{table}
 
-\section{Related Work}
+\section{Related and Future Work}
+
+\subsection{Related Work}
 
 \textcite{lam-lift} was the first to conceive lambda lifting as a code
 generation scheme for functional languages. Construction of the required set
@@ -806,12 +808,12 @@ several attempts to achieve its optimality (wrt. the minimal size of the
 required sets) with better asymptotics. As such, \textcite{optimal-lift} were
 the first to present an algorithm that simultaneously has optimal runtime in
 $\mathcal{O}(n^2)$ and computes minimal required sets. They also give a nice
-overview over previous approaches and highlight their shortcomings.
+overview over previous approaches and highlight their shortcomings.\smallskip
 
 That begs the question whether the somewhat careless transformation in
 \cref{sec:trans} has one or both of the desirable optimality properties of the
 algorithm by \textcite{optimal-lift}. \todo{As a separate theorem in
-\cref{sec:trans} or the appendix?}\smallskip
+\cref{sec:trans} or the appendix?}
 
 At least for the situation within GHC, we loosely argue that the constructed
 required sets are minimal: Because by the time our lambda lifter runs, the
@@ -851,13 +853,13 @@ object-oriented languages tend to implement the \texttt{this} pointer.
 References to free variables are resolved indirectly through the closure
 pointer, mimicing access of a heap-allocated record. From this perspective,
 every function in the program already is a supercombinator, taking an implicit
-first parameter. From this perspective, lambda lifting STG terms looks more
-like an \emph{unpacking} of the closure record into multiple arguments, similar
-to performing Scalar Replacement \parencite{scalar-replacement} on the
+first parameter. In this world, lambda lifting STG terms looks more like an
+\emph{unpacking} of the closure record into multiple arguments, similar to
+performing Scalar Replacement \parencite{scalar-replacement} on the
 \texttt{this} parameter or what the worker-wrapper transformation
 \parencite{ww} achieves. The situation is a little different to performing the
 worker-wrapper split in that there's no need for strictness or usage analysis
-to be involved. Similar to type class dictionaries, there's no non-termination
+to be involved. Similar to type class dictionaries, there's no divergence
 hiding in closure records. At the same time, closure records are defined with
 the sole purpose to carry all free variables for a particular function and a
 prior free variable analysis guarantees that the closure record will only
@@ -881,6 +883,27 @@ As such, the new lambda lifter is pretty much undoing SAT.
 We argue that SAT is mostly an enabling transformation for the
 middleend and by the time our lambda lifter runs, these opportunities will
 have been exploited.
+
+\subsection{Future Work}
+
+In \cref{sec:eval} we concluded that our closure growth heuristic was too
+conservative. Cursory digging reveals that in the case of \texttt{grep}, an
+inner loop of a list comprehension gets lambda lifted, where allocation only
+happens on the cold path for the particular input data of the benchmark.
+
+In general, lambda lifting STG terms pushes allocations from definition sites
+into any closures that nest around call sites. If only closures on cold code
+paths grow, doing the lift could be beneficial. Weighting closure growth by an
+estimate of execution frequency \parencite{static-prof} could help here. Such
+static profiles would be convenient in a number of places, to determine
+viability of exploiting a costly optimisation opportunity, for example.
+
+Currently, the decision of whether to lift a binding or not is all or nothing.
+There might be a middle-ground worthwhile to be explored: Don't abstract over
+\emph{all} free variables, but only those with the most beneficial effects. For
+example, we might be able to float a binding out of a hot loop when we would
+just abstract over the most recently defined free variable.
+
 
 \listoftodos
 
