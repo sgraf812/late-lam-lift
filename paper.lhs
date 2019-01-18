@@ -119,12 +119,13 @@
 
 \section{Introduction}
 
+Lambda lifting is a well-known transformation \parencite{lam-lift},
+traditionally used for compiling functional programs to supercombinators.
+
 \section{Transformation}
 \label{sec:trans}
 
-Lambda lifting is a well-known transformation \parencite{lam-lift},
-traditionally used for compiling functional programs to supercombinators.  Our
-use case for lambda lifting is unique in that it operates on terms of the
+Our use case for lambda lifting is unique in that it operates on terms of the
 \emph{spineless tagless G-machine} (STG) \parencite{stg} as currently
 implemented \parencite{fastcurry} in GHC and in that we only lift
 \emph{selectively}.  The extension of Johnsson's formulation to STG terms is
@@ -136,7 +137,7 @@ extraneous parameters \parencite{optimal-lift} of a binding. Because we operate
 late in the pipeline of GHC, we can assume that every recursive binding group
 corresponds to a strongly-connected component of the dependency graph.  This
 means that construction of the required set simplifies to joining the free
-variable sets of the binding group, once, for the whole binding group.
+variable sets of the binding group, once for the whole binding group.
 
 \subsection{Syntax}
 
