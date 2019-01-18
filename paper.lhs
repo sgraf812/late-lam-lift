@@ -904,6 +904,20 @@ There might be a middle-ground worthwhile to be explored: Don't abstract over
 example, we might be able to float a binding out of a hot loop when we would
 just abstract over the most recently defined free variable.
 
+\section{Conclusion}
+
+We presented selective lambda lifting as an optimisation on STG terms and an
+implementation in the Glasgow Haskell Compiler. The heuristics that
+decide when to reject a lifting opportunity were derived from concrete
+operational deficiencies. We assessed the effectiveness of this evidence-based
+approach on a large corpus of Haskell benchmarks.
+
+One of our main contributions was a conservative estimate of closure growth
+resulting from a lifting decision. Although prohibiting any closure growth
+proved to be a little too restrictive, it still prevents arbitrary regressions
+in allocations. We believe that in the future, closure growth estimation could
+take static profiling information into account for more realistic and less
+conservative estimates.
 
 \listoftodos
 
