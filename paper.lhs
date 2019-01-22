@@ -120,7 +120,48 @@
 \section{Introduction}
 
 Lambda lifting is a well-known transformation \parencite{lam-lift},
-traditionally used for compiling functional programs to supercombinators.
+traditionally employed for compiling functional programs to supercombinators
+\parencite{fun-impl}. However, more recent abstract machines for functional
+languages like OCaml and Haskell tend to do closure conversion instead for
+direct access to the environment, so lambda lifting is no longer necessary to
+generate machine code.
+
+We propose to revisit lambda lifting as an optimising code generation strategy.
+Take this code in a Haskell-like language with explicit free variables as an
+example:
+
+\begin{code}
+let f = [x y] \a b -> ...
+    g = [f x] \d -> f d d + x
+in g 5
+\end{code}
+
+Closure conversion of |f| and |g| would allocate an environment with two entries for both.
+Now consider that we lambda lift |f| instead:
+
+\begin{code}
+f_up x y a b = ...;
+let f = [x y] \ -> f_up x y
+    g = [f x] \d -> f d d + x
+in g 5
+\end{code}
+
+Note that closure conversion would still allocate the same environments, lambda
+lifting just disconnected closure allocation from the code pointer of |f_up|.
+Suppose now that |f| gets inlined:
+
+\begin{code}
+f_up x y a b = ...
+let g = [x y] \d -> f_up x y d d + x
+in g 5
+\end{code}
+
+The closure for |f| and the associated allocations completely vanished in favor
+of a few more arguments at its call site! The result looks much simpler.
+
+This work is concerned with finding out when doing this transformation is
+beneficial to performance, providing an interesting angle on the interaction
+between lambda lifting and closure conversion.
 
 \section{Transformation}
 \label{sec:trans}
@@ -866,6 +907,9 @@ the sole purpose to carry all free variables for a particular function and a
 prior free variable analysis guarantees that the closure record will only
 contain free variables that are actually used in the body of the
 function.\smallskip
+
+\todo{Write about section 4.5 of \textcite{stg}}
+\todo{Mention \textcite{lam-lift-opt}}
 
 The selective lambda lifting scheme proposed follows an all or nothing
 approach: Either the binding is lifted to top-level or it is left untouched.
