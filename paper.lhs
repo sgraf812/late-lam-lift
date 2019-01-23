@@ -925,34 +925,45 @@ upward vertical dependence} in a separate pass over the syntax tree, but we
 found the transformation to be sufficiently fast even in the presence of
 unnecessary variable expansions for a total of $\mathcal{O}(n^2)$ set
 operations. Ignoring needless expansions, the transformation performs
-$\mathcal{O}(n)$ set operations when merging free variable sets.\medskip
+$\mathcal{O}(n)$ set operations when merging free variable sets.\smallskip
 
-Operationally, an STG function is supplied a pointer to a record of its free
-variables as the first argument. This closure pointer is similar to how
-object-oriented languages tend to implement the \texttt{this} pointer.
-References to free variables are resolved indirectly through the closure
-pointer, mimicing access of a heap-allocated record. From this perspective,
-every function in the program already is a supercombinator, taking an implicit
-first parameter. In this world, lambda lifting STG terms looks more like an
-\emph{unpacking} of the closure record into multiple arguments, similar to
-performing Scalar Replacement \parencite{scalar-replacement} on the
-\texttt{this} parameter or what the worker-wrapper transformation
-\parencite{ww} achieves. The situation is a little different to performing the
-worker-wrapper split in that there's no need for strictness or usage analysis
-to be involved. Similar to type class dictionaries, there's no divergence
-hiding in closure records. At the same time, closure records are defined with
-the sole purpose to carry all free variables for a particular function and a
-prior free variable analysis guarantees that the closure record will only
-contain free variables that are actually used in the body of the
-function.\smallskip
+Operationally, an STG function is supplied a pointer to its closure as the
+first argument. This closure pointer is similar to how object-oriented
+languages tend to implement the \texttt{this} pointer. References to free
+variables are resolved indirectly through the closure pointer, mimicing access
+of a heap-allocated record. From this perspective, every function in the
+program already is a supercombinator, taking an implicit first parameter. In
+this world, lambda lifting STG terms looks more like an \emph{unpacking} of the
+closure record into multiple arguments, similar to performing Scalar
+Replacement \parencite{scalar-replacement} on the \texttt{this} parameter or
+what the worker-wrapper transformation \parencite{ww} achieves. The situation
+is a little different to performing the worker-wrapper split in that there's no
+need for strictness or usage analysis to be involved. Similar to type class
+dictionaries, there's no divergence hiding in closure records. At the same
+time, closure records are defined with the sole purpose to carry all free
+variables for a particular function and a prior free variable analysis
+guarantees that the closure record will only contain free variables that are
+actually used in the body of the function.
 
-\todo{Write about section 4.5 of \textcite{stg}}
-\todo{Mention \textcite{lam-lift-opt}}
+\Textcite{stg} anticipates the effects of lambda-lifting in the context of the
+STG machine. Without the subsequent step which inlines the partial application,
+he comes to the correct conclusion that direct accesses into the environment
+from the function body result in less movement of values from heap to stack.
+Our approach however inlines the partial application to get rid of heap
+accesses altogether.
 
-The selective lambda lifting scheme proposed follows an all or nothing
+The idea of regarding lambda lifting as an optimisation is not novel.
+\Textcite{lam-lift-opt} motivates selective lambda lifting in the context of
+compiling Scheme to C. Many of his liftability criteria are specific to
+Scheme and necessitated by the fact that lambda lifting is performed after
+closure conversion.
+%Interestingly, lambda lifting binders that occur as parameters to higher-order
+%functions is combined with specialisation of those higher-order functions.
+
+Our selective lambda lifting scheme proposed follows an all or nothing
 approach: Either the binding is lifted to top-level or it is left untouched.
-The obvious extension to this approach is to only abstract out \emph{some}
-free variables. If this would be combined with a subsequent float out pass,
+The obvious extension to this approach is to only abstract out \emph{some} free
+variables. If this would be combined with a subsequent float out pass,
 abstracting out the right variables (\ie those defined at the deepest level)
 could make for significantly less allocations when a binding can be floated out
 of a hot loop.  This is very similar to performing lambda lifting and then
@@ -961,11 +972,10 @@ opportunities to drop parameters, implementing a flexible lambda dropping pass
 \parencite{lam-drop}.
 
 Lambda dropping, or more specifically parameter dropping, has a close sibling
-in GHC in the form of the static argument transformation \parencite{santos} (SAT).
-As such, the new lambda lifter is pretty much undoing SAT.
-We argue that SAT is mostly an enabling transformation for the
-middleend and by the time our lambda lifter runs, these opportunities will
-have been exploited.
+in GHC in the form of the static argument transformation \parencite{santos}
+(SAT). As such, the new lambda lifter is pretty much undoing SAT. We argue that
+SAT is mostly an enabling transformation for the middleend and by the time our
+lambda lifter runs, these opportunities will have been exploited.
 
 \subsection{Future Work}
 
