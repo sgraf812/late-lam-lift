@@ -381,7 +381,7 @@ required set.
 \begin{alignat*}{2}
 \decide_\absids(bs) &&{}={}&
   \begin{cases}
-    (\emptybind,\absids',\abs_{\absids'}(bs)), & \text{if bs should be lifted} \\
+    (\emptybind,\absids',\abs_{\absids'}(bs)), & \text{if $bs$ should be lifted} \\
     (bs, \absids, \emptybind), & \text{otherwise} \\
   \end{cases} \\
 \text{where}\qquad &&& \\
