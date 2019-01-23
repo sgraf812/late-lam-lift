@@ -16,7 +16,11 @@
 \usepackage{hyperref}
 \usepackage{cleveref}
 \usepackage{csquotes}
-\hypersetup{pdfborder={0 0 0}}
+\hypersetup{%
+  pdfauthor={Sebastian Graf},
+  pdftitle={Lucrative Late Lambda Lifting},
+  hidelinks=true,
+}
 \usepackage[backend=bibtex8]{biblatex}
 
 \bibliography{references.bib}
@@ -60,15 +64,16 @@
 \newcommand{\liftv}{\fun{lift-var}}
 \newcommand{\liftb}{\fun{lift-bind}}
 \newcommand{\abs}{\fun{abstract}}
-\newcommand{\expand}{\fun{expand-closures}}
+\newcommand{\expand}{\fun{expand-envs}}
 \newcommand{\decide}{\fun{decide-lift}}
 \newcommand{\recurse}{\fun{recurse}}
 \newcommand{\note}{\fun{note}}
-\newcommand{\fvs}{\fun{fvs}}
+\newcommand{\rqs}{\fun{rqs}}
 \newcommand{\expander}{\ty{Expander}}
 \newcommand{\var}{\ty{Var}}
 \newcommand{\expr}{\ty{Expr}}
 \newcommand{\bindgr}{\ty{Bind}}
+\newcommand{\rhs}{\ty{Rhs}}
 \newcommand{\emptybind}{\varepsilon}
 \newcommand{\wrap}{\fun{wrap}}
 \newcommand{\dom}[1]{\sfop{dom}\,#1}
@@ -203,45 +208,45 @@ compare to in \cref{sec:relfut}.
 \end{itemize}
 
 \section{Transformation}
+
 \label{sec:trans}
 
 The extension of Johnsson's formulation \parencite{lam-lift} to STG terms is
 straight-forward, but it's still worth showing how the transformation
 integrates the decision logic for which bindings are going to be lambda lifted.
 
-Central to the transformation is the construction of the \emph{required set} of
-extraneous parameters \parencite{optimal-lift} of a binding. Because we operate
-late in the pipeline of GHC, we can assume that every recursive binding group
-corresponds to a strongly-connected component of the dependency graph.  This
-means that construction of the required set simplifies to joining the free
-variable sets of the binding group, once for the whole binding group.
+Central to the transformation is the construction of the minimal \emph{required
+set} of extraneous parameters \parencite{optimal-lift} of a binding.
 
 \subsection{Syntax}
 
 Although the STG language is tiny compared to typical surface languages such as
 Haskell, its definition \parencite{fastcurry} still contains much detail
 irrelevant to lambda lifting. As can be seen in \cref{fig:syntax}, we therefore
-adopt a simple lambda calculus with |let| bindings as in \textcite{lam-lift},
-with a few STG-inspired features:
+adopt a simple untyped lambda calculus with |let| bindings as in
+\textcite{lam-lift}, with a few STG-inspired characteristics:
 
-\begin{enumerate}
-\item |let| bindings are annotated with the non-top-level free variables of the right-hand side (RHS) they bind
+\begin{itemize}
 \item Every lambda abstraction is the right-hand side of a |let| binding
-\item Arguments and heads in an application expression are all atomic (\eg variable references)
-\end{enumerate}
+\item Arguments and heads in an application expression are all atomic (\eg
+variable references)
+\end{itemize}
+
+Additionally, we assume that |let| bindings are annotated with the
+non-top-level free variables of the right-hand side (RHS) they bind.
 
 We decomposed |let| expressions into smaller syntactic forms for the simple
 reason that it allows the analysis and transformation to be defined in more
 granular (and thus more easily understood) steps.
 
 \begin{figure}[h]
-\begin{alignat*}{4}
-\text{Variables} &\quad& f,x,y &&&&\quad& \\
-\text{Expressions} && e & {}\Coloneqq{} && x && \text{Variable} \\
-            &&   & \mathwithin{{}\Coloneqq{}}{\mid} && f\; x_1\ldots\,x_n && \text{Function call} \\
-            &&   & \mathwithin{{}\Coloneqq{}}{\mid} && \mkLetb{b}{e} && \text{Recursive \keyword{let}} \\
-\text{Bindings} && b & {}\Coloneqq{} && \overline{f_i \mathrel{=} [\mskip1.5mu x_{i,1} \ldots\, x_{i,n_i}\mskip1.5mu] \mskip1.5mu r_i} && \\
-\text{Right-hand sides} && r & {}\Coloneqq{} && \lambda \mskip1.5mu y_1 \ldots\,y_m\to e && \\
+\begin{alignat*}{6}
+\text{Variables} &\quad& f,x,y &\in \var &&&&&\quad& \\
+\text{Expressions} && e &\in \expr && {}\Coloneqq{} && x && \text{Variable} \\
+            &&&&   & \mathwithin{{}\Coloneqq{}}{\mid} && f\; x_1\ldots\,x_n && \text{Saturated function call} \\
+            &&&&   & \mathwithin{{}\Coloneqq{}}{\mid} && \mkLetb{b}{e} && \text{Recursive \keyword{let}} \\
+\text{Bindings} && b &\in \bindgr && {}\Coloneqq{} && \overline{f_i \mathrel{=} [\mskip1.5mu x_{i,1} \ldots\, x_{i,n_i}\mskip1.5mu] \mskip1.5mu r_i} && \\
+\text{Right-hand sides} && r &\in \rhs && {}\Coloneqq{} && \lambda \mskip1.5mu y_1 \ldots\,y_m\to e && \\
 \end{alignat*}
 \caption{An STG-like untyped lambda calculus}
 \label{fig:syntax}
@@ -249,152 +254,180 @@ granular (and thus more easily understood) steps.
 
 \subsection{Algorithm}
 
-Our implementation extends the original formulation of \textcite{lam-lift} to STG terms, by exploiting and maintaining closure annotations.
-We will recap our variant of the algorithm in its whole here.
-It is assumed that all variables have unique names and that there is a sufficient supply of fresh names from which to draw.
+With the notation settled, we can begin to recap our variant of the lambda
+lifting transformation. It is assumed that all variables have unique names and
+that there is a sufficient supply of fresh names from which to draw.
 
-We'll define a side-effecting function, \lift, recursively over the term structure. This is its signature:
+We'll define a side-effecting function, \lift, recursively over the term
+structure. This is its signature:
 
-\todo[inline]{Take inspiration in "Implementing functional languages: a tutorial" and collect super-combinators afterwards for better separation of concerns. Is that possible? After all, that would influence the lifting decision!}
+\todo[inline]{Take inspiration in "Implementing functional languages: a tutorial" and collect super-combinators afterwards for better separation of concerns. Is that possible? I think not, the hardest part probably is the subsequent inlining pass and the associated substitution. Separating out the decision logic won't really help much. On the other hand, we already lean on a hypothetical inlining pass in some places, so we could just delegate some more inlining work to it. I still don't think this would meaningfully simplify things.}
 
 \[
 \lift_{\mathunderscore}(\mathunderscore) \colon \expander \to \expr \to \writer{\bindgr}{\expr}
 \]
 \todo{I think the occurrences of body expression etc. need to be meta-variables.}
 
-As its first argument, \lift takes an \expander, which is a partial function from lifted binders to their sets of required variables.
-These are the additional variables we have to pass at call sites after lifting.
-The expander is extended every time we decide to lambda lift a binding.
-It plays a similar role as the $E_f$ set in \textcite{lam-lift}.
-We write $\dom{\absids}$ for the domain of the expander $\absids$ and $\absids[\idx \mapsto S]$ to denote extension of the expander function, so that the result maps $\idx$ to $S$ and all other identifiers by delegating to $\absids$.
+As its first argument, \lift takes an \expander, which is a partial function
+from lifted binders to their sets of required variables. These are the
+additional variables we have to pass at call sites after lifting. The expander
+is extended every time we decide to lambda lift a binding. It plays a similar
+role as the $E_f$ set in \textcite{lam-lift}. We write $\dom{\absids}$ for the
+domain of the expander $\absids$ and $\absids[\idx \mapsto S]$ to denote
+extension of the expander function, so that the result maps $\idx$ to $S$ and
+all other identifiers by delegating to $\absids$.
 
-The second argument is the expression that is to be lambda lifted.
-A call to \lift results in an expression that no longer contains any bindings that were lifted.
-The lifted bindings are emitted as a side-effect of the \emph{writer monad}, denoted by $\writer{\bindgr}{\mathunderscore}$.
+The second argument is the expression that is to be lambda lifted. A call to
+\lift results in an expression that no longer contains any bindings that were
+lifted. The lifted bindings are emitted as a side-effect of the \emph{writer
+monad}, denoted by $\writer{\bindgr}{\mathunderscore}$.
 
 \subsubsection{Side-effects}
 
 \todo{Properly define the structure? Or is this 'obvious'?}
-The following syntax, inspired by \emph{idiom brackets} \parencite{applicative} and \emph{bang notation}\footnote{http://docs.idris-lang.org/en/v1.3.0/tutorial/interfaces.html}, will allow concise notation while hiding sprawling state threading:
+The following syntax, inspired by \emph{idiom brackets} \parencite{applicative} and \emph{bang notation}\footnote{\url{http://docs.idris-lang.org/en/v1.3.0/tutorial/interfaces.html}}, will allow concise notation while hiding sprawling state threading:
 
 \[
   \idiom{E[\eff{e_1}, ..., \eff{e_n}]}
 \]
 
-This denotes a side-effecting computation that, when executed, will perform the side-effecting subcomputations $e_i$ in order (any fixed order will do for us).
-After that, it will lift the otherwise pure context $E$ over the results of the subcomputations.
+This denotes a side-effecting computation that, when executed, will perform the
+side-effecting subcomputations $e_i$ in order (any fixed order will do for us).
+After that, it will lift the otherwise pure context $E$ over the results of the
+subcomputations.
 
-In addition, we make use of the monadic bind operators $>\!\!>\!\!=$ and $>\!\!>$, defined in the usual way.
-The primitive operation $\note$ takes as argument a binding group and merges its bindings into the contextual binding group tracked by the writer monad.
+In addition, we make use of the monadic bind operators $>\!\!>\!\!=$ and
+$>\!\!>$, defined in the usual way. The primitive operation $\note$ takes as
+argument a binding group and merges its bindings into the contextual binding
+group tracked by the writer monad.
 
 \subsubsection{Variables}
 
 Let's begin with the variable case.
 
 \begin{alignat*}{2}
-&\lift_\absids(\idx) &{}={}&
+&\lift_\absids(x) &{}={}&
   \begin{cases}
-    \idiom{\idx},                        & \idx \notin \dom{\absids} \\
-    \idiom{\idx\; \idy_1 \ldots \idy_n}, & \absids(\idx) = \{ \idy_1, \ldots, \idy_n \}
+    \idiom{x},                        & x \notin \dom{\absids} \\
+    \idiom{x\; y_1 \ldots y_n}, & \absids(x) = \{ y_1, \ldots, y_n \}
   \end{cases} \\
 \end{alignat*}
 
 
-We check if the variable was lifted to top-level by looking it up in the supplied expander mapping $\absids$ and if so, we apply it to its newly required variables.
-There are no bindings occuring that could be lambda lifted, hence the function performs no actual side-effects.
+We check if the variable was lifted to top-level by looking it up in the
+supplied expander mapping $\absids$ and if so, we apply it to its newly
+required variables. There are no bindings occuring that could be lambda lifted,
+hence the function performs no actual side-effects.
 
 \subsubsection{Applications}
 
 \label{sssec:app}
 
-Handling function application correctly is a little subtle, because only variables are allowed in argument position.
-When such an argument variable's binding is lifted to top-level, it turns into a non-atomic application expression, violating the STG invariants.
-Each such application must be bound to an enclosing |let| binding
-\footnote{To keep the specification reasonably simple, we also do so for non-lifted identifiers and assume that the compiler can do the trivial rewrite $\mkLet{\idy}{\idx}{}{\idx}{E[\idy]} \Longrightarrow E[\idx]$ for us.}:
+Handling function application correctly is a little subtle, because only
+variables are allowed in argument position. When such an argument variable's
+binding is lifted to top-level, it turns into a non-atomic application
+expression, violating the STG invariants. Each such application must be bound
+to an enclosing |let| binding \footnote{To keep the specification reasonably
+simple, we also do so for non-lifted identifiers and assume that the compiler
+can do the trivial rewrite $\mkLet{y}{x}{}{x}{E[y]} \Longrightarrow E[x]$ for
+us.}:
 
 \todo{The application rule is unnecessarily complicated because we support occurrences of lifted binders in argument position. Lifting such binders isn't worthwhile anyway (see \cref{sec:analysis}). Maybe just say that we don't allow it?}
 
 \[
-\lift_\absids(\idf\; \idx_1 \ldots \idx_n) = \idiom{(\wrap_\absids(\idx_n) \circ \ldots \circ \wrap_\absids(\idx_1))(\eff{\lift_\absids(\idf)}\; \idx_1' \ldots \idx_n')} \\ \]
+\lift_\absids(f\; x_1 \ldots x_n) = \idiom{(\wrap_\absids(x_n) \circ \ldots \circ \wrap_\absids(x_1))(\eff{\lift_\absids(f)}\; x_1' \ldots x_n')} \\ \]
 
-The notation $\idx'$ chooses a fresh name for $\idx$ in a consistent fashion.
-The application head \idf is handled by an effectful recursive call to \lift.
+The notation $x'$ chooses a fresh name for $x$ in a consistent fashion.
+The application head $f$ is handled by an effectful recursive call to \lift.
 Syntactically heavy |let| wrapping is outsourced into a helper function \wrap:
 
 \[
-\wrap_\absids(\idx)(\ide) =
+\wrap_\absids(x)(e) =
   \begin{cases}
-    \mkLet{\idx'}{\idx}{}{\idx}{\ide}, & \idx \notin \dom{\absids} \\
-    \mkLet{\idx'}{}{\idy_1 \ldots \idy_n}{\idx\; \idy_1 \ldots \idy_n}{\ide}, & \absids(\idx) = \{ \idy_1, \ldots, \idy_n \} \\
+    \mkLet{x'}{x}{}{x}{e}, & x \notin \dom{\absids} \\
+    \mkLet{x'}{}{y_1 \ldots y_n}{x\; y_1 \ldots y_n}{e}, & \absids(x) = \{ y_1, \ldots, y_n \} \\
   \end{cases} \\
 \]
 
 \subsubsection{Let Bindings}
 
-Hardly surprising, the meat of the transformation hides in the handling of |let| bindings.
-This can be broken down into three separate functions:
+Hardly surprising, the meat of the transformation hides in the handling of
+|let| bindings. This can be broken down into three separate functions:
 \[
-\lift_\absids(\mkLetb{\idbs}{\ide}) = (\recurse(\ide) \circ \decide_\absids \circ \expand_\absids)(\idbs)
+\lift_\absids(\mkLetb{bs}{e}) = (\recurse(e) \circ \decide_\absids \circ \expand_\absids)(bs)
 \]
 
-The first step is to expand closures mentioned in $\idbs$ with the help of
-$\absids$. Then a heuristic (that of \cref{sec:analysis}, for example) decides
-whether to lift the binding group $\idbs$ to top-level or not. Depending on
-that decision, the binding group is \note{}d to be lifted to top-level and
+The first step is to expand closure environments mentioned in $bs$ with the
+help of $\absids$. Then a heuristic (that of \cref{sec:analysis}, for example)
+decides whether to lift the binding group $bs$ to top-level or not. Depending
+on that decision, the binding group is \note{}d to be lifted to top-level and
 syntactic subentities of the |let| binding are traversed with the updated
 expander.
 
 \begin{alignat*}{2}
-\expand_\absids(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idr_i}) &&{}={}& \mkBindr{\idf_i}{\idy_1 \ldots \idy_{n'_i}}{\idr_i} \\
+\expand_\absids(\mkBindr{f_i}{x_{i,1} \ldots x_{i,n_i}}{r_i}) &&{}={}& \mkBindr{f_i}{y_{i,1} \ldots y_{i,n'_i}}{r_i} \\
 \text{where}\qquad\qquad &&& \\
-\{\idy_1\ldots \idy_{n'_i}\} &&{}={}& \bigcup_{j=1}^{n_i}
+\{y_{i,1}\ldots y_{i,n'_i}\} &&{}={}& \bigcup_{j=1}^{n_i}
   \begin{cases}
-    \idx_j, & \idx_j \notin \dom{\absids} \\
-    \absids(\idx_j), & \text{otherwise}
+    x_{i,j}, & x_{i,j} \notin \dom{\absids} \\
+    \absids(x_{i,j}), & \text{otherwise}
   \end{cases}
 \end{alignat*}
 
-\todo{Not happy with the indices. $\idy_{i,1}$ maybe? Applies to many more examples.}
-
-\expand substitutes all occurences of lifted binders (those that are in $\dom{\absids}$) in closures of a given binding group by their required set.
+\expand substitutes all occurences of lifted binders (those that are in
+$\dom{\absids}$) in closure environments of a given binding group by their
+required set.
 
 \begin{alignat*}{2}
-\decide_\absids(\idbs) &&{}={}&
+\decide_\absids(bs) &&{}={}&
   \begin{cases}
-    (\emptybind,\absids',\abs_{\absids'}(\idbs)), & \text{if \idbs should be lifted} \\
-    (\idbs, \absids, \emptybind), & \text{otherwise} \\
+    (\emptybind,\absids',\abs_{\absids'}(bs)), & \text{if bs should be lifted} \\
+    (bs, \absids, \emptybind), & \text{otherwise} \\
   \end{cases} \\
 \text{where}\qquad &&& \\
-\absids' &&{}={}& \absids\left[\overline{\idf_i \mapsto \fvs(\idbs)}\right] \text{for } \mkBindr{\idf_i}{\mathunderscore}{\mathunderscore} = \idbs
+\absids' &&{}={}& \absids\left[\overline{f_i \mapsto \rqs(bs)}\right] \text{for } \mkBindr{f_i}{\mathunderscore}{\mathunderscore} = bs
 \end{alignat*}
 
-\decide returns a triple of a binding group that remains with the local |let| binding, an updated expander and a binding group prepared to be lifted to top-level.
-Depending on whether the argument $\idbs$ is decided to be lifted or not, either the returned local binding group or the $\abs$ed binding group is empty.
-In case the binding is to be lifted, the expander is updated to map the newly lifted bindings to their required set.
+\decide returns a triple of a binding group that remains with the local |let|
+binding, an updated expander and a binding group prepared to be lifted to
+top-level. Depending on whether the argument $\idbs$ is decided to be lifted or
+not, either the returned local binding group or the $\abs$ed binding group is
+empty. In case the binding is to be lifted, the expander is updated to map the
+newly lifted bindings to their required set.
 \[
-\fvs(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\mathunderscore}) = \bigcup_i \{\idx_1, \ldots, \idx_{n_i} \} \setminus \overline{\idf_i}
+\rqs(\mkBindr{f_i}{x_1 \ldots x_{n_i}}{\mathunderscore}) = \bigcup_i \{x_1, \ldots, x_{n_i} \} \setminus \{\overline{f_i}\}
 \]
 
-The required set consists of the free variables of each binding's RHS, conveniently available in syntax, minus the defined binders themselves.
-Note that the required set of each binder of the same binding group will be identical (\cf begin of \cref{sec:trans}).
+The required set consists of the free variables of each binding's RHS,
+conveniently available in syntax, minus the defined binders themselves. Note
+that the required set of each binder of the same binding group will be
+identical. See \cref{sec:relfut} for an argument about minimality of the
+resulting required sets.
 \[
-\abs_\absids(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\mkRhs{\idy_1 \ldots \idy_{m_i}}{\ide_i}}) = \mkBindr{\idf_i}{}{\mkRhs{\absids(\idf_i)\; \idy_1 \ldots \idy_{m_i}}{\ide_i}}
+\abs_\absids(\mkBindr{f_i}{x_1 \ldots x_{n_i}}{\mkRhs{y_1 \ldots y_{m_i}}{e_i}}) = \mkBindr{f_i}{}{\mkRhs{\absids(f_i)\; y_1 \ldots y_{m_i}}{e_i}}
 \]
 
-The abstraction step is performed in \abs, where closure variables are removed in favor of additional parameters, one for each element of the respective binding's required set.
+The abstraction step is performed in \abs, where closure variables are removed
+in favor of additional parameters, one for each element of the respective
+binding's required set.
 \[
-\recurse(\ide)(\idbs, \absids, \idlbs) = \liftb_\absids(\idlbs) >\!\!>\!\!= \note >\!\!> \idiom{\mkLetb{\eff{\liftb_\absids(\idbs)}}{\eff{\lift_\absids(\ide)}}}
+\recurse(e)(bs, \absids, lbs) = \liftb_\absids(lbs) >\!\!>\!\!= \note >\!\!> \idiom{\mkLetb{\eff{\liftb_\absids(bs)}}{\eff{\lift_\absids(e)}}}
 \]
 
-In the final step of the |let| \enquote{pipeline}, the algorithm recurses into every subexpression of the |let| binding.
-The binding group to be lifted is transformed first, after which it is added to the contextual top-level binding group of the writer monad.
-Finally, the binding group that remains locally bound is traversed, as well as the original |let| body.
-The result is again wrapped up in a |let| and returned\footnote{Similar to the application case, we assume that the compiler performs the obvious rewrite $\mkLetb{\emptybind}{e} \Longrightarrow e$.}.
+In the final step of the |let| \enquote{pipeline}, the algorithm recurses into
+every subexpression of the |let| binding. The binding group to be lifted is
+transformed first, after which it is added to the contextual top-level binding
+group of the writer monad. Finally, the binding group that remains locally
+bound is traversed, as well as the original |let| body. The result is again
+wrapped up in a |let| and returned\footnote{Similar to the application case, we
+assume that the compiler performs the obvious rewrite $\mkLetb{\emptybind}{e}
+\Longrightarrow e$.}.
 
 What remains is the trivial, but noisy definition of the \liftb traversal:
+\todo{Horizontal overflows. Argh}
 
 \[
-\liftb_\absids(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\mkRhs{\idy_1 \ldots \idy_{m_i}}{\ide_i}}) = \idiom{\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\mkRhs{\idy_1 \ldots \idy_{m_i}}{\eff{\lift_\absids(\ide_i)}}}} \\
+\liftb_\absids(\mkBindr{f_i}{x_{i,1} \ldots x_{i,n_i}}{\mkRhs{y_{i,1} \ldots y_{i,m_i}}{e_i}}) = \idiom{\mkBindr{f_i}{x_{i,1} \ldots x_{i,n_i}}{\mkRhs{y_{i,1} \ldots y_{i,m_i}}{\eff{\lift_\absids(e_i)}}}} \\
 \]
 
 \section{When to lift} % Or: Analysis?
@@ -905,7 +938,7 @@ connected components with respect to the dependency graph, up to lexical
 scoping. Now consider a variable $\idx \in \absids(\idf_i)$ in the required set
 of a |let| binding for the binding group $\overline{\idf_i}$.
 
-Suppose there exists $j$ such that $\idx \in \fvs(\idf_j)$, in which case
+Suppose there exists $j$ such that $\idx \in \rqs(\idf_j)$, in which case
 $\idx$ must be part of the minimal set: Note that lexical scoping prevents
 coalescing a recursive group with their dominators in the call graph if they
 define variables that occur in the group. \textcite{optimal-lift} gave a
@@ -913,8 +946,8 @@ convincing example that this was indeed what makes the quadratic time approach
 from \textcite{fast-lift} non-optimal with respect to the size of the required
 sets.
 
-When $\idx \notin \fvs(\idf_j)$ for any $j$, $\idx$ must have been the result of
-expanding some function $\idg \in \fvs(\idf_j)$, with $\idx \in \absids(\idg)$.
+When $\idx \notin \rqs(\idf_j)$ for any $j$, $\idx$ must have been the result of
+expanding some function $\idg \in \rqs(\idf_j)$, with $\idx \in \absids(\idg)$.
 Lexical scoping dictates that $\idg$ is defined in an outer binding, an
 ancestor in the syntax tree, that is.  So, by induction over the pre-order
 traversal of the syntax tree employed by the transformation, we can assume that
