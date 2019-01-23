@@ -126,32 +126,32 @@ languages like OCaml and Haskell tend to do closure conversion instead for
 direct access to the environment, so lambda lifting is no longer necessary to
 generate machine code.
 
-We propose to revisit lambda lifting as an optimising code generation strategy.
-Take this code in a Haskell-like language with explicit free variables as an
-example:
+We propose to revisit lambda lifting in this context as an optimising code
+generation strategy. Take this code in a Haskell-like language with explicit
+free variables as an example:
 
 \begin{code}
-let f = [x y] \a b -> ...
+let f = [x y] \a b -> x*y+a*b
     g = [f x] \d -> f d d + x
 in g 5
 \end{code}
 
-Closure conversion of |f| and |g| would allocate an environment with two entries for both.
-Now consider that we lambda lift |f| instead:
+Closure conversion of |f| and |g| would allocate an environment with two
+entries for both. Now imagine we lambda lift |f| before that happens:
 
 \begin{code}
-f_up x y a b = ...;
+f_up x y a b = x*y+a*b;
 let f = [x y] \ -> f_up x y
     g = [f x] \d -> f d d + x
 in g 5
 \end{code}
 
-Note that closure conversion would still allocate the same environments, lambda
-lifting just disconnected closure allocation from the code pointer of |f_up|.
-Suppose now that |f| gets inlined:
+Note that closure conversion would still allocate the same environments. Lambda
+lifting just separated closure allocation from the code pointer of |f_up|.
+Suppose now that the partial application |f| gets inlined:
 
 \begin{code}
-f_up x y a b = ...
+f_up x y a b = x*y+a*b;
 let g = [x y] \d -> f_up x y d d + x
 in g 5
 \end{code}
@@ -159,17 +159,53 @@ in g 5
 The closure for |f| and the associated allocations completely vanished in favor
 of a few more arguments at its call site! The result looks much simpler.
 
-This work is concerned with finding out when doing this transformation is
-beneficial to performance, providing an interesting angle on the interaction
-between lambda lifting and closure conversion.
+But wait. Assume for the sake of the argument that we subtly change the body of
+|f|:
+
+\begin{code}
+let f = [x y] \a b -> y (x+a*b)
+    g = [f x] \d -> f d d + x
+in g 5
+\end{code}
+
+Now |f| closes over a function |y|, occuring in an (assumed) early bound call
+in |f|'s body. After the proposed transformation we would get this:
+
+\begin{code}
+f_up x y a b = y (x+a*b);
+let g = [x y] \d -> f_up x y d d + x
+in g 5
+\end{code}
+
+But now the call to the formal parameter |y| in |f_up| is late bound, incurring
+a substantial slowdown.
+
+Unsurprisingly, there are a number of subtleties to keep in mind. This work is
+concerned with finding out when doing this transformation is beneficial to
+performance, providing an interesting angle on the interaction between lambda
+lifting and closure conversion. These are our contributions:
+
+\begin{itemize}
+\item We describe a selective lambda lifting pass that maintains the invariants
+associated with the STG language \parencite{stg} (\cref{sec:trans}).
+\item A number of heuristics fueling the lifting decision are derived from
+concrete operational deficiencies in \cref{sec:analysis}. We provide a static
+analysis estimating \emph{closure growth}, conservatively approximating the
+effects of a lifting decision on the total allocations of the program.
+\item We implemented our lambda lifting pass in the Glasgow Haskell Compiler
+(GHC) as part of its STG pipeline. The decision to do lambda lifting this late
+in the compilation pipeline is a natural one, given that accurate allocation
+estimates are impossible on GHC's more high-level Core language. We evaluate
+our pass against the \texttt{nofib} benchmark suite (\cref{sec:eval}) and find
+that our static analysis works as advertised.
+\item Our approach builds and is similar to many previous works, which we
+compare to in \cref{sec:relfut}.
+\end{itemize}
 
 \section{Transformation}
 \label{sec:trans}
 
-Our use case for lambda lifting is unique in that it operates on terms of the
-\emph{spineless tagless G-machine} (STG) \parencite{stg} as currently
-implemented \parencite{fastcurry} in GHC and in that we only lift
-\emph{selectively}.  The extension of Johnsson's formulation to STG terms is
+The extension of Johnsson's formulation \parencite{lam-lift} to STG terms is
 straight-forward, but it's still worth showing how the transformation
 integrates the decision logic for which bindings are going to be lambda lifted.
 
@@ -837,6 +873,8 @@ convention on AMD64 was a good call.
 \end{table}
 
 \section{Related and Future Work}
+
+\label{sec:relfut}
 
 \subsection{Related Work}
 
