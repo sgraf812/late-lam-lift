@@ -218,8 +218,11 @@ variable sets of the binding group, once for the whole binding group.
 
 \subsection{Syntax}
 
-Although STG is but a tiny language compared to typical surface languages such as Haskell, its definition \parencite{fastcurry} still contains much detail irrelevant to lambda lifting.
-As can be seen in \cref{fig:syntax}, we therefore adopt a simple lambda calculus with |let| bindings as in \textcite{lam-lift}, with a few STG-inspired features:
+Although the STG language is tiny compared to typical surface languages such as
+Haskell, its definition \parencite{fastcurry} still contains much detail
+irrelevant to lambda lifting. As can be seen in \cref{fig:syntax}, we therefore
+adopt a simple lambda calculus with |let| bindings as in \textcite{lam-lift},
+with a few STG-inspired features:
 
 \begin{enumerate}
 \item |let| bindings are annotated with the non-top-level free variables of the right-hand side (RHS) they bind
@@ -1011,6 +1014,10 @@ proved to be a little too restrictive, it still prevents arbitrary regressions
 in allocations. We believe that in the future, closure growth estimation could
 take static profiling information into account for more realistic and less
 conservative estimates.
+
+\section{Acknowledgments}
+
+\todo{acknowledgements}
 
 \listoftodos
 
