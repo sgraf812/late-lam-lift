@@ -122,8 +122,7 @@
 
 \maketitle
 
-\section{Introduction}
-
+\begin{abstract}
 Lambda lifting is a well-known transformation \parencite{lam-lift},
 traditionally employed for compiling functional programs to supercombinators
 \parencite{fun-impl}. However, more recent abstract machines for functional
@@ -131,9 +130,37 @@ languages like OCaml and Haskell tend to do closure conversion instead for
 direct access to the environment, so lambda lifting is no longer necessary to
 generate machine code.
 
-We propose to revisit lambda lifting in this context as an optimising code
-generation strategy. Take this code in a Haskell-like language with explicit
-free variables as an example:
+We propose to revisit selective lambda lifting in this context as an optimising
+code generation strategy and conceive heuristics to identify beneficial lifting
+opportunities. We give a static analysis for estimating impact on heap
+allocations of a lifting decision. Perfomance measurements of our
+implementation within the Glasgow Haskell Compiler on a large corpus of Haskell
+suggest reliable speedups.
+\end{abstract}
+
+\section{Introduction}
+
+The ability to define nested auxiliary functions referencing free variables is
+essential when programming in functional languages. Compilers had to generate
+code for such functions since the dawn of Lisp. 
+
+A compiler compiling down to G-machine code \parencite{fun-impl} would generate
+code by converting all free variables into parameters. The resulting functions
+are insensitive to lexical scope and can be floated to top-level. This process
+is called \emph{lambda lifting} \parencite{lam-lift}.
+
+An alternative to lambda lifting is \emph{closure conversion}, where references
+to free variables are lowered as field accesses on a record containing all free
+variables of the function, the \emph{closure environment}, passed as an
+implicit parameter to the function. All functions are then regarded as
+\emph{closures}: A pair of a code pointer and an environment.
+
+Recent abstract machines for functional programming languages such as the
+spineless tagless G-machine \parencite{stg} choose to do closure conversion
+instead of lambda lifting for code generation. Although lambda lifting seems to
+have fallen out of fashion, we argue that it bears potential as an optimisation
+pass prior to closure conversion. Take this code in a Haskell-like language
+with explicit free variables as an example:
 
 \begin{code}
 let f = [x y] \a b -> x*y+a*b
@@ -254,19 +281,21 @@ granular (and thus more easily understood) steps.
 
 \subsection{Algorithm}
 
-With the notation settled, we can begin to recap our variant of the lambda
-lifting transformation. It is assumed that all variables have unique names and
-that there is a sufficient supply of fresh names from which to draw.
+With the notation settled, we can present our variant of the lambda lifting
+transformation. As suggested in the introduction, this interleaves pure lambda
+lifting with an inlining pass that immediately inlines the resulting partial
+applications.
 
-We'll define a side-effecting function, \lift, recursively over the term
-structure. This is its signature:
+It is assumed that all variables have unique names and that there is a
+sufficient supply of fresh names from which to draw. We'll define a
+side-effecting function, \lift, recursively over the term structure. This is
+its signature:
 
 \todo[inline]{Take inspiration in "Implementing functional languages: a tutorial" and collect super-combinators afterwards for better separation of concerns. Is that possible? I think not, the hardest part probably is the subsequent inlining pass and the associated substitution. Separating out the decision logic won't really help much. On the other hand, we already lean on a hypothetical inlining pass in some places, so we could just delegate some more inlining work to it. I still don't think this would meaningfully simplify things.}
 
 \[
 \lift_{\mathunderscore}(\mathunderscore) \colon \expander \to \expr \to \writer{\bindgr}{\expr}
 \]
-\todo{I think the occurrences of body expression etc. need to be meta-variables.}
 
 As its first argument, \lift takes an \expander, which is a partial function
 from lifted binders to their sets of required variables. These are the
@@ -316,8 +345,11 @@ Let's begin with the variable case.
 
 We check if the variable was lifted to top-level by looking it up in the
 supplied expander mapping $\absids$ and if so, we apply it to its newly
-required variables. There are no bindings occuring that could be lambda lifted,
-hence the function performs no actual side-effects.
+required variables. Notice that this has the effect of inlining the partial
+application that arises in pure lambda lifting.
+
+There are no bindings occuring that could be lambda lifted, hence the function
+performs no actual side-effects.
 
 \subsubsection{Applications}
 
@@ -332,14 +364,15 @@ simple, we also do so for non-lifted identifiers and assume that the compiler
 can do the trivial rewrite $\mkLet{y}{x}{}{x}{E[y]} \Longrightarrow E[x]$ for
 us.}:
 
-\todo{The application rule is unnecessarily complicated because we support occurrences of lifted binders in argument position. Lifting such binders isn't worthwhile anyway (see \cref{sec:analysis}). Maybe just say that we don't allow it?}
-
 \[
 \lift_\absids(f\; x_1 \ldots x_n) = \idiom{(\wrap_\absids(x_n) \circ \ldots \circ \wrap_\absids(x_1))(\eff{\lift_\absids(f)}\; x_1' \ldots x_n')} \\ \]
+\todo[inline]{The application rule is unnecessarily complicated because we support occurrences of lifted binders in argument position, in which case we cannot inline the partial application. Lifting such binders isn't worthwhile anyway (see \cref{sec:analysis}). Maybe just say that we don't allow it?}
+\todo[inline]{Subtlety: The application will actually be a nested application. I think that's for fine for the purposes of this paper}
 
 The notation $x'$ chooses a fresh name for $x$ in a consistent fashion.
 The application head $f$ is handled by an effectful recursive call to \lift.
-Syntactically heavy |let| wrapping is outsourced into a helper function \wrap:
+Syntactically heavy |let| wrapping of potential partial applications is
+outsourced into a helper function \wrap:
 
 \[
 \wrap_\absids(x)(e) =
@@ -359,10 +392,9 @@ Hardly surprising, the meat of the transformation hides in the handling of
 
 The first step is to expand closure environments mentioned in $bs$ with the
 help of $\absids$. Then a heuristic (that of \cref{sec:analysis}, for example)
-decides whether to lift the binding group $bs$ to top-level or not. Depending
-on that decision, the binding group is \note{}d to be lifted to top-level and
-syntactic subentities of the |let| binding are traversed with the updated
-expander.
+decides whether to lambda lift the binding group $bs$ or not. Depending on that
+decision, the binding group is \note{}d to be lifted to top-level and syntactic
+subentities of the |let| binding are traversed with the updated expander.
 
 \begin{alignat*}{2}
 \expand_\absids(\mkBindr{f_i}{x_{i,1} \ldots x_{i,n_i}}{r_i}) &&{}={}& \mkBindr{f_i}{y_{i,1} \ldots y_{i,n'_i}}{r_i} \\
@@ -434,11 +466,11 @@ What remains is the trivial, but noisy definition of the \liftb traversal:
 
 \label{sec:analysis}
 
-Lambda lifting a binding to top-level is always a sound transformation.  The
-challenge is in identifying \emph{when} it is beneficial to do so.  This
-section will discuss operational consequences of lambda lifting, introducing
-multiple criteria based on a cost model for estimating impact on heap
-allocations.
+Lambda lifting and inlining are always sound transformations. The challenge is
+in identifying \emph{when} it is beneficial to apply them. This section will
+discuss operational consequences of our lambda lifting pass described in
+\cref{sec:trans}, introducing multiple criteria for rejecting a lift. This
+motivates a cost model for estimating impact on heap allocations.
 
 We'll take a somewhat loose approach to following the STG invariants in our
 examples (regarding giving all complex subexpressions a name, in particular),
@@ -476,10 +508,10 @@ expression.  This, however, would yield a syntactically invalid expression
 because the STG language only allows trivial arguments in an application.
 
 The transformation from \cref{sec:trans} will immediately wrap the application
-in a |let| binding for the complex argument expression: |g 5 x f ==> let f' =
-f_up x y z in g 5 x f'|.  But this just reintroduces at every call site the very
-allocation we wanted to eliminate through lambda lifting! Therefore, we can identify a
-first criterion for non-beneficial lambda lifts:
+with a partial application: |g 5 x f ==> let f' = f_up x y z in g 5 x f'|. But
+this just reintroduces at every call site the very allocation we wanted to
+eliminate through lambda lifting! Therefore, we can identify a first criterion
+for non-beneficial lambda lifts:
 
 \begin{introducecrit}
   \item Don't lift binders that occur as arguments
@@ -492,7 +524,7 @@ unnecessary.
 \paragraph{Closure growth.} \ref{s1} means we don't allocate a closure on the
 heap for the |let| binding. On the other hand, \ref{s3} might increase or
 decrease heap allocation, which can be captured by a metric we call
-\emph{closure growth}. Consider this example:
+\emph{closure growth}. Consider our example from the introduction:
 
 \begin{code}
 let f = [x y] \a b -> ...
@@ -500,7 +532,8 @@ let f = [x y] \a b -> ...
 in g 5
 \end{code}
 
-Should |f| be lifted? It's hard to say without actually seeing the lifted version:
+Should |f| be lifted? It's hard to tell without actually seeing the lifted
+version:
 
 \begin{code}
 f_up = \x y a b -> ...;
@@ -510,26 +543,31 @@ in g 5
 
 Just counting the number of variables occurring in closures, the effect of
 \ref{s1} saved us two slots. At the same time, \ref{s3} removes |f| from |g|'s
-closure (no need to close over the top-level |f_up|), while simultaneously
-enlarging it with |f|'s former free variable |y|. The new occurrence of |x|
-doesn't contribute to closure growth, because it already occurred in |g| prior
-to lifting. The net result is a reduction of two slots, so lifting |f| seems
-worthwhile. In general:
+closure (no need to close over the top-level constant |f_up|), while
+simultaneously enlarging it with |f|'s former free variable |y|. The new
+occurrence of |x| doesn't contribute to closure growth, because it already
+occurred in |g| prior to lifting. The net result is a reduction of two slots,
+so lifting |f| seems worthwhile. In general:
 
 \begin{introducecrit}
-  \item \label{h:alloc} Don't lift a binding when doing so would increase closure allocation
+  \item \label{h:alloc} Don't lift a binding when doing so would increase
+  closure allocation
 \end{introducecrit}
 
 Note that this also includes handling of |let| bindings for partial
 applications that are allocated when GHC spots an undersaturated call.
 
-Estimation of closure growth is crucial to identifying beneficial lifting
-opportunities. We discuss this further in \cref{ssec:cg}.
+Estimation of closure growth is crucial to achieving predictable results. We
+discuss this further in \cref{ssec:cg}.
 
-\paragraph{Calling Convention.} \ref{s4} means that more arguments have to be passed. Depending on the target architecture, this entails more stack accesses and/or higher register pressure. Thus
+\paragraph{Calling Convention.} \ref{s4} means that more arguments have to be
+passed. Depending on the target architecture, this entails more stack accesses
+and/or higher register pressure. Thus
 
 \begin{introducecrit}
-  \item \label{h:cc} Don't lift a binding when the arity of the resulting top-level definition exceeds the number of available argument registers of the employed calling convention (\eg 5 arguments for GHC on x86\_64)
+  \item \label{h:cc} Don't lift a binding when the arity of the resulting
+  top-level definition exceeds the number of available argument registers of
+  the employed calling convention (\eg 5 arguments for GHC on AMD64)
 \end{introducecrit}
 
 One could argue that we can still lift a function when its arity won't change.
@@ -537,7 +575,8 @@ But in that case, the function would not have any free variables to begin with
 and could just be floated to top-level. As is the case with GHC's full laziness
 transformation, we assume that this already happened in a prior pass.
 
-\paragraph{Turning known calls into unknown calls.} There's another aspect related to \ref{s4}, relevant in programs with higher-order functions:
+\paragraph{Turning known calls into unknown calls.} There's another aspect
+related to \ref{s4}, relevant in programs with higher-order functions:
 
 \begin{code}
 let f = [] \x -> 2*x
@@ -545,7 +584,10 @@ let f = [] \x -> 2*x
 in mapF [1, 2, 3]
 \end{code}
 
-Here, there is a \emph{known call} to |f| in |mapF| that can be lowered as a direct jump to a static address \parencite{fastcurry}.  Lifting |mapF| (but not |f|) yields the following program:
+Here, there is a \emph{known call} to |f| in |mapF| that can be lowered as a
+direct jump to a static address \parencite{fastcurry}. This is similar to an
+early bound call in an object-oriented language. Lifting |mapF| (but not |f|)
+yields the following program:
 
 \begin{code}
 mapF_up = \f xs -> ... f x ...;
@@ -553,21 +595,25 @@ let f = [] \x -> 2*x
 in mapF_up f [1, 2, 3]
 \end{code}
 
+Now, |f| is passed as an argument to |mapF_up| and its address is unknown
+within the body of |mapF_up|. For lack of a global points-to analysis, this
+unknown (\ie late bound) call would need to go through a generic apply function
+\parencite{fastcurry}, incurring a major slow-down.
+
 \begin{introducecrit}
   \item \label{h:known} Don't lift a binding when doing so would turn known calls into unknown calls
 \end{introducecrit}
 
-% These kind of slow calls can never actually occur, because we lift only known functions.
-%
-% \paragraph{Slow call patterns.} \todo{Align this with the previous paragraph} GHC employs the eval/apply model \cite{fastcurry} for translating function calls. Unknown function calls are lowered as calls to generic apply functions, which are specialised for specific argument patterns, \eg varying on the number of accepted arguments. If there is no matching generic apply function for the given argument pattern, the call is split up into a succession of multiple generic apply calls, allocating partial applications for each but the last generic apply call. Thus, we want to avoid turning slow calls into such \emph{very slow} calls.
-%
-% \begin{introducecrit}
-%   \item Don't lift a binding when doing so would turn a slow unknown call into a very slow unknown call \todo{call these fast and slow unknown calls instead? Easily confused with fast and slow entrypoints, which are related, but different}
-% \end{introducecrit}
+% We don't really look at code size concerns. Benchmarks suggest an increase of
+% 0.1\%, nothing too concerning.
+%\paragraph{Code size.} \ref{s2} (and, to a lesser extent, all other
+%consequences) have the potential to increase or decrease code size. We regard
+%this a secondary concern, but will have a look at it in \cref{sec:eval}.
 
-\paragraph{Code size.} \ref{s2} (and, to a lesser extent, all other consequences) have the potential to increase or decrease code size. We regard this a secondary concern, but will have a look at it in \cref{sec:eval}.
-
-\paragraph{Sharing.} Let's finish with a no-brainer: Lambda lifting updatable bindings (\eg thunks) or constructor bindings is a bad idea, because it destroys sharing, thus possibly duplicating work in each call to the lifted binding.
+\paragraph{Sharing.} Let's finish with a no-brainer: Lambda lifting updatable
+bindings (\eg thunks) or constructor bindings is a bad idea, because it
+destroys sharing, thus possibly duplicating work in each call to the lifted
+binding.
 
 \begin{introducecrit}
   \item Don't lift a binding that is updatable or a constructor application
@@ -576,8 +622,9 @@ in mapF_up f [1, 2, 3]
 \subsection{Estimating Closure Growth}
 \label{ssec:cg}
 
-Of the criterions above, \ref{h:alloc} is the most important for reliable performance gains.
-It's also the most sophisticated, because it entails estimating closure growth.
+Of the criterions above, \ref{h:alloc} is quite important for predictable
+performance gains. It's also the most sophisticated, because it entails
+estimating closure growth.
 
 \subsubsection{Motivation}
 
@@ -589,14 +636,17 @@ let f = [x y] \a b -> ...
 in g 5
 \end{code}
 
-We concluded that lifting |f| would be beneficial, saving us allocation of two free variable slots.
-There are two effects at play here.
-Not having to allocate the closure of |f| due to \ref{s1} always leads to a one-time benefit.
-Simultaneously, each closure occurrence of |f| would be replaced by its referenced free variables.
-Removing |f| leads to a saving of one slot per closure, but the free variables |x| and |y| each occupy a closure slots in turn.
-Of these, only |y| really contributes to closure growth, because |x| already occurred in the single remaining closure of |g|.
+We concluded that lifting |f| would be beneficial, saving us allocation of two
+free variable slots. There are two effects at play here. Not having to allocate
+the closure of |f| due to \ref{s1} always leads to a one-time benefit.
+Simultaneously, each closure occurrence of |f| would be replaced by its
+referenced free variables. Removing |f| leads to a saving of one slot per
+closure, but the free variables |x| and |y| each occupy a closure slots in
+turn. Of these, only |y| really contributes to closure growth, because |x|
+already occurred in the single remaining closure of |g|.
 
-This phenomenon is amplified whenever allocation happens under a multi-shot lambda, as the following example demonstrates:
+This phenomenon is amplified whenever allocation happens under a multi-shot
+lambda, as the following example demonstrates:
 
 \begin{code}
 let f = [x y] \a b -> ...
@@ -606,14 +656,17 @@ let f = [x y] \a b -> ...
 in g 1 + g 2 + g 3
 \end{code}
 
-Is it still beneficial to lift |f|?
-Following our reasoning, we still save two slots from |f|'s closure, the closure of |g| doesn't grow and the closure |h| grows by one.
-We conclude that lifting |f| saves us one closure slot.
-But that's nonsense!
-Since |g| is called thrice, the closure for |h| also gets allocated three times relative to single allocations for the closures of |f| and |g|.
+Is it still beneficial to lift |f|? Following our reasoning, we still save two
+slots from |f|'s closure, the closure of |g| doesn't grow and the closure |h|
+grows by one. We conclude that lifting |f| saves us one closure slot. But
+that's nonsense! Since |g| is called thrice, the closure for |h| also gets
+allocated three times relative to single allocations for the closures of |f|
+and |g|.
 
-In general, |h| might be occuring inside a recursive function, for which we can't reliably estimate how many times its closure will be allocated.
-Disallowing to lift any binding which is called inside a closure under such a multi-shot lambda is conservative, but rules out worthwhile cases like this:
+In general, |h| might be defined inside a recursive function, for which we
+can't reliably estimate how many times its closure will be allocated.
+Disallowing to lift any binding which is called inside a closure under such a
+multi-shot lambda is conservative, but rules out worthwhile cases like this:
 
 \begin{code}
 let f = [x y] \a b -> ...
@@ -624,15 +677,18 @@ let f = [x y] \a b -> ...
 in g 1 + g 2 + g 3
 \end{code}
 
-Here, the closure of |h_1| grows by one, whereas that of |h_2| shrinks by one, cancelling each other out.
-Hence there is no actual closure growth happening under the multi-shot binding |g| and |f| is good to lift.
+Here, the closure of |h_1| grows by one, whereas that of |h_2| shrinks by one,
+cancelling each other out. Hence there is no actual closure growth happening
+under the multi-shot binding |g| and |f| is good to lift.
 
-The solution is to denote closure growth in the (not quite max-plus) algebra $\zinf = \mathbb{Z} \cup \{\infty\}$ and denote positive closure growth under a multi-shot lambda by $\infty$.
+The solution is to denote closure growth in the (not quite max-plus) algebra
+$\zinf = \mathbb{Z} \cup \{\infty\}$ and denote positive closure growth under a
+multi-shot lambda by $\infty$.
 
 \subsubsection{Design}
 
-Applied to our simple STG language, we can define a function $\cg$ (short for closure growth) with the following signature:
-\todo{Maybe add the syntactic sort we operate on as a superscript?}
+Applied to our simple STG language, we can define a function $\cg$ (short for
+closure growth) with the following signature:
 
 \[
 \cg_{\mathunderscore\,\mathunderscore}(\mathunderscore) \colon \mathcal{P}(\var) \to \mathcal{P}(\var) \to \expr \to \zinf
@@ -647,11 +703,13 @@ respectively, it maps expressions to the closure growth resulting from
 \end{itemize}
 
 In the lifting algorithm from \cref{sec:trans}, \cg would be consulted as part
-of the lifting decision to estimate the total effect on allocations.  Assuming
+of the lifting decision to estimate the total effect on allocations. Assuming
 we were to decide whether to lift the binding group $\overline{\idf_i}$ out of
 an expression $\mkLetr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idy_1 \ldots
 \idy_{m_i}}{\ide_i}{\ide}$, the following expression conservatively estimates
-the effects on heap allocation for performing the lift:
+the effect on heap allocation for performing the lift\footnote{The effect of
+inlining the partial applications resulting from vanilla lambda lifting, to be
+precise.}:
 
 \[
 \cg_{\absids'(\idf_1)\,\{\overline{\idf_i}\}}(\mkLetr{\idf_i}{}{\idx_1 \ldots \idx_{n_i} \idy_1 \ldots \idy_{m_i}}{\ide_i}{\ide}) - \sum_i n_i
@@ -659,37 +717,41 @@ the effects on heap allocation for performing the lift:
 
 With the required set $\absids'(\idf_1)$ passed as the first argument and with $\{\overline{\idf_i}\}$ for the second set (\ie the binders for which lifting is to be decided).
 
-Note that we logically lambda lifted the binding group in question without actually floating out the binding.
-The reasons for that are twofold:
-Firstly, the reductions in closure allocation resulting from that lift are accounted separately in the trailing sum expression, capturing the effects of \ref{s1}.
-Secondly, the lifted binding group isn't affected by closure growth (where there are no free variables, nothing can grow or shrink), which is entirely a symptom of \ref{s3}.
+Note that we logically lambda lifted the binding group in question without
+actually floating out the binding. The reasons for that are twofold: Firstly,
+the reductions in closure allocation resulting from that lift are accounted
+separately in the trailing sum expression, capturing the effects of \ref{s1}.
+Secondly, the lifted binding group isn't affected by closure growth (where
+there are no free variables, nothing can grow or shrink), which is entirely a
+symptom of \ref{s3}.
 
-In practice, we require that this metric is non-positive to allow the lambda lift.
+In practice, we require that this metric is non-positive to allow the lambda
+lift.
 
 \subsubsection{Implementation}
 
 The cases for variables and applications are trivial, because they don't allocate:
 \begin{alignat*}{2}
-\cg_{\added\removed}(\idx) &&{}={}& 0 \\
-\cg_{\added\removed}(\idf\; \idx_1 \ldots \idx_n) &&{}={}& 0
+\cg_{\added\removed}(x) &&{}={}& 0 \\
+\cg_{\added\removed}(f\; x_1 \ldots x_n) &&{}={}& 0
 \end{alignat*}
-As before, the complexity hides in |let| bindings and its syntactic components.
+Once again, the complexity hides in |let| bindings and its syntactic components.
 We'll break them down one layer at a time. This makes the |let| rule itself
 nicely compositional, because it delegates most of its logic to $\cgb$:
 \[
-\cg_{\added\removed}(\mkLetb{\idbs}{\ide}) = \cgb_{\added\removed}(\idbs) + \cg_{\added\removed}(\ide)
+\cg_{\added\removed}(\mkLetb{bs}{e}) = \cgb_{\added\removed}(bs) + \cg_{\added\removed}(e)
 \]
 
 Next, we look at how binding groups are measured:
 
 \begin{alignat*}{2}
-\cgb_{\added\removed}(\mkBindr{\idf_i}{\idx_1 \ldots \idx_{n_i}}{\idr_i})&&{}={}& \sum_i \growth_i + \sum_i \cgr_{\added\removed}(\idr_i) \\
+\cgb_{\added\removed}(\mkBindr{f_i}{x_1 \ldots x_{n_i}}{r_i})&&{}={}& \sum_i \growth_i + \sum_i \cgr_{\added\removed}(r_i) \\
 \growth_i &&{}={}&
   \begin{cases}
-    \card{\added \setminus \{\idx_1,\ldots,\idx_{n_i}\}} - \nu_i, & \text{if $\nu_i > 0$} \\
+    \card{\added \setminus \{x_1,\ldots,x_{n_i}\}} - \nu_i, & \text{if $\nu_i > 0$} \\
     0, & \text{otherwise} \\
   \end{cases} \\
-\nu_i &&{}={}& \card{\{\idx_1,\ldots,\idx_{n_i}\} \cap \removed}
+\nu_i &&{}={}& \card{\{x_1,\ldots,x_{n_i}\} \cap \removed}
 \end{alignat*}
 
 The \growth component accounts for allocating each closure of the binding
@@ -702,16 +764,16 @@ closure before.
 The call to $\cgr$ accounts for closure growth of right-hand sides:
 
 \begin{alignat*}{2}
-\cgr_{\added\removed}(\mkRhs{\ldots}{\ide})&&{}={}& \cg_{\added\removed}(\ide) * [\sigma, \tau] \\
+\cgr_{\added\removed}(\mkRhs{\ldots}{e})&&{}={}& \cg_{\added\removed}(e) * [\sigma, \tau] \\
 \sigma &&{}={}&
   \begin{cases}
-    1, & \text{\ide is entered at least once} \\
+    1, & \text{$e$ is entered at least once} \\
     0, & \text{otherwise} \\
   \end{cases} \\
 \tau &&{}={}&
   \begin{cases}
-    0, & \text{\ide is never entered} \\
-    1, & \text{\ide is entered at most once} \\
+    0, & \text{$e$ is never entered} \\
+    1, & \text{$e$ is entered at most once} \\
     1, & \text{the RHS is bound to a thunk} \\
     \infty, & \text{otherwise} \\
   \end{cases} \\
@@ -730,11 +792,11 @@ approximation would be to return $\infty$ whenever there is positive closure
 growth in a RHS and 0 otherwise.
 
 That would be disastrous for analysis precision! Fortunately, GHC has access to
-cardinality information from its demand analyser \parencite{dmd} \todo{What to cite? Progress
-on the new demand analysis paper seemed to have stalled. The cardinality paper?
-The old demand analysis paper from 2006? Both?}. Demand analysis estimates lower
-and upper bounds ($\sigma$ and $\tau$ above) on how many times a RHS is entered
-relative to its defining expression.
+cardinality information from its demand analyser \parencite{dmd}\todo{What to
+cite? Progress on the new demand analysis paper seemed to have stalled. The
+cardinality paper? The old demand analysis paper from 2006? Both?}. Demand
+analysis estimates lower and upper bounds ($\sigma$ and $\tau$ above) on how
+many times a RHS is entered relative to its defining expression.
 
 Most importantly, this identifies one-shot lambdas ($\tau = 1$), under which
 case a positive closure growth doesn't lead to an infinite closure growth for
@@ -915,16 +977,19 @@ convention on AMD64 was a good call.
 \subsection{Related Work}
 
 \textcite{lam-lift} was the first to conceive lambda lifting as a code
-generation scheme for functional languages. Construction of the required set
-of free variables for each binding is formulated as the smallest solution of a
-system of set inequalities.
+generation scheme for functional languages. As explained in \cref{sec:trans},
+we deviate from the original transformation in that we interleave an inlining
+pass for the residual partial applications and regard this interleaving as an
+optimisation pass by only applying it selectively.
 
-Although Johnsson's algorithm runs in $\mathcal{O}(n^3)$ time, there were
-several attempts to achieve its optimality (wrt. the minimal size of the
-required sets) with better asymptotics. As such, \textcite{optimal-lift} were
-the first to present an algorithm that simultaneously has optimal runtime in
-$\mathcal{O}(n^2)$ and computes minimal required sets. They also give a nice
-overview over previous approaches and highlight their shortcomings.\smallskip
+Johnsson's constructed the required set of free variables for each binding by
+computing the smallest solution of a system of set inequalities. Although this
+runs in $\mathcal{O}(n^3)$ time, there were several attempts to achieve its
+optimality (wrt. the minimal size of the required sets) with better
+asymptotics. As such, \textcite{optimal-lift} were the first to present an
+algorithm that simultaneously has optimal runtime in $\mathcal{O}(n^2)$ and
+computes minimal required sets. They also give a nice overview over previous
+approaches and highlight their shortcomings.\smallskip
 
 That begs the question whether the somewhat careless transformation in
 \cref{sec:trans} has one or both of the desirable optimality properties of the
@@ -982,17 +1047,17 @@ guarantees that the closure record will only contain free variables that are
 actually used in the body of the function.
 
 \Textcite{stg} anticipates the effects of lambda-lifting in the context of the
-STG machine. Without the subsequent step which inlines the partial application,
-he comes to the correct conclusion that direct accesses into the environment
-from the function body result in less movement of values from heap to stack.
-Our approach however inlines the partial application to get rid of heap
-accesses altogether.
+STG machine, which performs closure conversion for code generation. Without the
+subsequent step which inlines the partial application, he comes to the
+conclusion that direct accesses into the environment from the function body
+result in less movement of values from heap to stack. Our approach however
+inlines the partial application to get rid of heap accesses altogether.
 
 The idea of regarding lambda lifting as an optimisation is not novel.
 \Textcite{lam-lift-opt} motivates selective lambda lifting in the context of
 compiling Scheme to C. Many of his liftability criteria are specific to
-Scheme and necessitated by the fact that lambda lifting is performed after
-closure conversion.
+Scheme and necessitated by the fact that lambda lifting is performed
+\emph{after} closure conversion.
 %Interestingly, lambda lifting binders that occur as parameters to higher-order
 %functions is combined with specialisation of those higher-order functions.
 
@@ -1007,11 +1072,12 @@ cautiously performing block sinking as long as it leads to beneficial
 opportunities to drop parameters, implementing a flexible lambda dropping pass
 \parencite{lam-drop}.
 
-Lambda dropping, or more specifically parameter dropping, has a close sibling
-in GHC in the form of the static argument transformation \parencite{santos}
-(SAT). As such, the new lambda lifter is pretty much undoing SAT. We argue that
-SAT is mostly an enabling transformation for the middleend and by the time our
-lambda lifter runs, these opportunities will have been exploited.
+Lambda dropping \parencite{lam-drop}, or more specifically parameter dropping,
+has a close sibling in GHC in the form of the static argument transformation
+\parencite{santos} (SAT). As such, the new lambda lifter is pretty much undoing
+SAT. We argue that SAT is mostly an enabling transformation for the middleend
+and by the time our lambda lifter runs, these opportunities will have been
+exploited.
 
 \subsection{Future Work}
 
@@ -1020,33 +1086,40 @@ conservative. Cursory digging reveals that in the case of \texttt{grep}, an
 inner loop of a list comprehension gets lambda lifted, where allocation only
 happens on the cold path for the particular input data of the benchmark.
 
-In general, lambda lifting STG terms pushes allocations from definition sites
-into any closures that nest around call sites. If only closures on cold code
-paths grow, doing the lift could be beneficial. Weighting closure growth by an
-estimate of execution frequency \parencite{static-prof} could help here. Such
-static profiles would be convenient in a number of places, to determine
-viability of exploiting a costly optimisation opportunity, for example.
+In general, lambda lifting STG terms and then inlining residual partial
+applications pushes allocations from definition sites into any closures that
+nest around call sites. If only closures on cold code paths grow, doing the
+lift could be beneficial. Weighting closure growth by an estimate of execution
+frequency \parencite{static-prof} could help here. Such static profiles would
+be convenient in a number of places, for example in the inliner or to determine
+viability of exploiting a costly optimisation opportunity.
 
-Currently, the decision of whether to lift a binding or not is all or nothing.
-There might be a middle-ground worthwhile to be explored: Don't abstract over
-\emph{all} free variables, but only those with the most beneficial effects. For
-example, we might be able to float a binding out of a hot loop when we would
-just abstract over the most recently defined free variable.
+Our selective lambda lifter follows an all or nothing approach: Either the
+binding is lifted to top-level or it is left untouched. The obvious extension
+to this approach is to only abstract out \emph{some} free variables. If this
+would be combined with a subsequent float out pass, abstracting out the right
+variables (\ie those defined at the deepest level) could make for significantly
+less allocations when a binding can be floated out of a hot loop.  This is very
+similar to performing lambda lifting and then cautiously performing block
+sinking as long as it leads to beneficial opportunities to drop parameters,
+implementing a flexible lambda dropping pass \parencite{lam-drop}.
 
 \section{Conclusion}
 
-We presented selective lambda lifting as an optimisation on STG terms and an
-implementation in the Glasgow Haskell Compiler. The heuristics that
-decide when to reject a lifting opportunity were derived from concrete
-operational deficiencies. We assessed the effectiveness of this evidence-based
-approach on a large corpus of Haskell benchmarks.
+We presented the combination of lambda lifting with an inlining pass for
+residual partial applications as an optimisation on STG terms and provided an
+implementation in the Glasgow Haskell Compiler. The heuristics that decide when
+to reject a lifting opportunity were derived from concrete operational
+deficiencies. We assessed the effectiveness of this evidence-based approach on
+a large corpus of Haskell benchmarks and concluded that average Haskell
+programs sped up by 0.7\% in the geometric mean.
 
 One of our main contributions was a conservative estimate of closure growth
 resulting from a lifting decision. Although prohibiting any closure growth
-proved to be a little too restrictive, it still prevents arbitrary regressions
-in allocations. We believe that in the future, closure growth estimation could
-take static profiling information into account for more realistic and less
-conservative estimates.
+proved to be a little too restrictive, it still prevents arbitrary and
+unpredictable regressions in allocations. We believe that in the future,
+closure growth estimation could take static profiling information into account
+for more realistic and less conservative estimates.
 
 \section{Acknowledgments}
 
