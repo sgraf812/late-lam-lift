@@ -1,0 +1,1648 @@
+diff --git a/compiler/basicTypes/Demand.hs b/compiler/basicTypes/Demand.hs
+index 071945386e..aea6a905c7 100644
+--- a/compiler/basicTypes/Demand.hs
++++ b/compiler/basicTypes/Demand.hs
+@@ -10,7 +10,7 @@
+ module Demand (
+         StrDmd, UseDmd(..), Count,
+ 
+-        Demand, CleanDemand, getStrDmd, getUseDmd,
++        Demand, DmdShell, CleanDemand, getStrDmd, getUseDmd,
+         mkProdDmd, mkOnceUsedDmd, mkManyUsedDmd, mkHeadStrict, oneifyDmd,
+         toCleanDmd,
+         absDmd, topDmd, botDmd, seqDmd,
+@@ -48,9 +48,9 @@ module Demand (
+         deferAfterIO,
+         postProcessUnsat, postProcessDmdType,
+ 
+-        splitProdDmd_maybe, peelCallDmd, mkCallDmd, mkWorkerDemand,
+-        dmdTransformSig, dmdTransformDataConSig, dmdTransformDictSelSig,
+-        argOneShots, argsOneShots, saturatedByOneShots,
++        splitProdDmd_maybe, peelCallDmd, peelManyCalls, mkCallDmd,
++        mkWorkerDemand, dmdTransformSig, dmdTransformDataConSig,
++        dmdTransformDictSelSig, argOneShots, argsOneShots, saturatedByOneShots,
+         trimToType, TypeShape(..),
+ 
+         useCount, isUsedOnce, reuseEnv,
+@@ -787,7 +787,7 @@ botDmd = JD { sd = strBot, ud = useBot }
+ seqDmd :: Demand
+ seqDmd = JD { sd = Str VanStr HeadStr, ud = Use One UHead }
+ 
+-oneifyDmd :: Demand -> Demand
++oneifyDmd :: JointDmd s (Use u) -> JointDmd s (Use u)
+ oneifyDmd (JD { sd = s, ud = Use _ a }) = JD { sd = s, ud = Use One a }
+ oneifyDmd jd                            = jd
+ 
+@@ -796,7 +796,7 @@ isTopDmd :: Demand -> Bool
+ isTopDmd (JD {sd = Lazy, ud = Use Many Used}) = True
+ isTopDmd _                                    = False
+ 
+-isAbsDmd :: Demand -> Bool
++isAbsDmd :: JointDmd (Str s) (Use u) -> Bool
+ isAbsDmd (JD {ud = Abs}) = True   -- The strictness part can be HyperStr
+ isAbsDmd _               = False  -- for a bottom demand
+ 
+@@ -804,7 +804,7 @@ isSeqDmd :: Demand -> Bool
+ isSeqDmd (JD {sd = Str VanStr HeadStr, ud = Use _ UHead}) = True
+ isSeqDmd _                                                = False
+ 
+-isUsedOnce :: Demand -> Bool
++isUsedOnce :: JointDmd (Str s) (Use u) -> Bool
+ isUsedOnce (JD { ud = a }) = case useCount a of
+                                One  -> True
+                                Many -> False
+@@ -817,7 +817,7 @@ seqDemandList :: [Demand] -> ()
+ seqDemandList [] = ()
+ seqDemandList (d:ds) = seqDemand d `seq` seqDemandList ds
+ 
+-isStrictDmd :: Demand -> Bool
++isStrictDmd :: JointDmd (Str s) (Use u) -> Bool
+ -- See Note [Strict demands]
+ isStrictDmd (JD {ud = Abs})  = False
+ isStrictDmd (JD {sd = Lazy}) = False
+diff --git a/compiler/basicTypes/Id.hs b/compiler/basicTypes/Id.hs
+index e38769a14f..1ca44271a1 100644
+--- a/compiler/basicTypes/Id.hs
++++ b/compiler/basicTypes/Id.hs
+@@ -897,9 +897,10 @@ zapStableUnfolding id
+ {-
+ Note [transferPolyIdInfo]
+ ~~~~~~~~~~~~~~~~~~~~~~~~~
+-This transfer is used in two places:
++This transfer is used in three places:
+         FloatOut (long-distance let-floating)
+         SimplUtils.abstractFloats (short-distance let-floating)
++        StgLiftLams (selectively lambda-lift local functions to top-level)
+ 
+ Consider the short-distance let-floating:
+ 
+diff --git a/compiler/ghc.cabal.in b/compiler/ghc.cabal.in
+index 01628dcad1..3f476d6a22 100644
+--- a/compiler/ghc.cabal.in
++++ b/compiler/ghc.cabal.in
+@@ -423,6 +423,11 @@ Library
+         SimplStg
+         StgStats
+         StgCse
++        StgLiftLams
++        StgLiftLams.Analysis
++        StgLiftLams.LiftM
++        StgLiftLams.Transformation
++        StgSubst
+         UnariseStg
+         RepType
+         Rules
+diff --git a/compiler/main/DynFlags.hs b/compiler/main/DynFlags.hs
+index 95a7122a57..e66d92c56a 100644
+--- a/compiler/main/DynFlags.hs
++++ b/compiler/main/DynFlags.hs
+@@ -458,6 +458,7 @@ data GeneralFlag
+    | Opt_StaticArgumentTransformation
+    | Opt_CSE
+    | Opt_StgCSE
++   | Opt_StgLiftLams
+    | Opt_LiberateCase
+    | Opt_SpecConstr
+    | Opt_SpecConstrKeen
+@@ -661,6 +662,7 @@ optimisationFlags = EnumSet.fromList
+    , Opt_StaticArgumentTransformation
+    , Opt_CSE
+    , Opt_StgCSE
++   , Opt_StgLiftLams
+    , Opt_LiberateCase
+    , Opt_SpecConstr
+    , Opt_SpecConstrKeen
+@@ -888,6 +890,13 @@ data DynFlags = DynFlags {
+   floatLamArgs          :: Maybe Int,   -- ^ Arg count for lambda floating
+                                         --   See CoreMonad.FloatOutSwitches
+ 
++  liftLamsRecArgs       :: Maybe Int,   -- ^ Maximum number of arguments after lambda lifting a
++                                        --   recursive function.
++  liftLamsNonRecArgs    :: Maybe Int,   -- ^ Maximum number of arguments after lambda lifting a
++                                        --   non-recursive function.
++  liftLamsKnown         :: Bool,        -- ^ Lambda lift even when this turns a known call
++                                        --   into an unknown call.
++
+   cmmProcAlignment      :: Maybe Int,   -- ^ Align Cmm functions at this boundary or use default.
+ 
+   historySize           :: Int,         -- ^ Simplification history size
+@@ -1772,6 +1781,9 @@ defaultDynFlags mySettings (myLlvmTargets, myLlvmPasses) =
+         specConstrRecursive     = 3,
+         liberateCaseThreshold   = Just 2000,
+         floatLamArgs            = Just 0, -- Default: float only if no fvs
++        liftLamsRecArgs         = Just 5, -- Default: the number of available argument hardware registers on x86_64
++        liftLamsNonRecArgs      = Just 8, -- Default: the number of available argument hardware registers on x86_64
++        liftLamsKnown           = False,  -- Default: don't turn known calls into unknown ones
+         cmmProcAlignment        = Nothing,
+ 
+         historySize             = 20,
+@@ -3423,6 +3435,18 @@ dynamic_flags_deps = [
+       (intSuffix (\n d -> d { floatLamArgs = Just n }))
+   , make_ord_flag defFlag "ffloat-all-lams"
+       (noArg (\d -> d { floatLamArgs = Nothing }))
++  , make_ord_flag defFlag "fstg-lift-lams-rec-args"
++      (intSuffix (\n d -> d { liftLamsRecArgs = Just n }))
++  , make_ord_flag defFlag "fstg-lift-lams-rec-args-any"
++      (noArg (\d -> d { liftLamsRecArgs = Nothing }))
++  , make_ord_flag defFlag "fstg-lift-lams-non-rec-args"
++      (intSuffix (\n d -> d { liftLamsRecArgs = Just n }))
++  , make_ord_flag defFlag "fstg-lift-lams-non-rec-args-any"
++      (noArg (\d -> d { liftLamsRecArgs = Nothing }))
++  , make_ord_flag defFlag "fstg-lift-lams-known"
++      (noArg (\d -> d { liftLamsKnown = True }))
++  , make_ord_flag defFlag "fno-stg-lift-lams-known"
++      (noArg (\d -> d { liftLamsKnown = False }))
+   , make_ord_flag defFlag "fproc-alignment"
+       (intSuffix (\n d -> d { cmmProcAlignment = Just n }))
+ 
+@@ -3914,6 +3938,7 @@ fFlagsDeps = [
+   flagSpec "cmm-sink"                         Opt_CmmSink,
+   flagSpec "cse"                              Opt_CSE,
+   flagSpec "stg-cse"                          Opt_StgCSE,
++  flagSpec "stg-lift-lams"                    Opt_StgLiftLams,
+   flagSpec "cpr-anal"                         Opt_CprAnal,
+   flagSpec "defer-type-errors"                Opt_DeferTypeErrors,
+   flagSpec "defer-typed-holes"                Opt_DeferTypedHoles,
+@@ -4438,6 +4463,7 @@ optLevelFlags -- see Note [Documenting optimisation flags]
+     , ([1,2],   Opt_CmmSink)
+     , ([1,2],   Opt_CSE)
+     , ([1,2],   Opt_StgCSE)
++    , ([1,2],   Opt_StgLiftLams)
+     , ([1,2],   Opt_EnableRewriteRules)  -- Off for -O0; see Note [Scoping for Builtin rules]
+                                          --              in PrelRules
+     , ([1,2],   Opt_FloatIn)
+diff --git a/compiler/simplStg/SimplStg.hs b/compiler/simplStg/SimplStg.hs
+index 36bf5101d6..002ae97f7b 100644
+--- a/compiler/simplStg/SimplStg.hs
++++ b/compiler/simplStg/SimplStg.hs
+@@ -5,6 +5,7 @@
+ -}
+ 
+ {-# LANGUAGE CPP #-}
++{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+ 
+ module SimplStg ( stg2stg ) where
+ 
+@@ -18,12 +19,25 @@ import StgLint          ( lintStgTopBindings )
+ import StgStats         ( showStgStats )
+ import UnariseStg       ( unarise )
+ import StgCse           ( stgCse )
++import StgLiftLams      ( stgLiftLams )
+ 
+ import DynFlags
+ import ErrUtils
+-import UniqSupply       ( mkSplitUniqSupply )
++import UniqSupply
+ import Outputable
+ import Control.Monad
++import Control.Monad.IO.Class
++import Control.Monad.Trans.State.Strict
++
++newtype StgM a = StgM { _unStgM :: StateT UniqSupply IO a }
++  deriving (Functor, Applicative, Monad, MonadIO)
++
++instance MonadUnique StgM where
++  getUniqueSupplyM = StgM (state splitUniqSupply)
++  getUniqueM = StgM (state takeUniqFromSupply)
++
++runStgM :: UniqSupply -> StgM a -> IO a
++runStgM us (StgM m) = evalStateT m us
+ 
+ stg2stg :: DynFlags                  -- includes spec of what stg-to-stg passes to do
+         -> [StgTopBinding]           -- input...
+@@ -33,44 +47,56 @@ stg2stg dflags binds
+   = do  { showPass dflags "Stg2Stg"
+         ; us <- mkSplitUniqSupply 'g'
+ 
+-                -- Do the main business!
+-        ; dumpIfSet_dyn dflags Opt_D_dump_stg "Pre unarise:"
+-                        (pprStgTopBindings binds)
++        -- Do the main business!
++        ; binds' <- runStgM us $
++            foldM do_stg_pass binds (getStgToDo dflags)
+ 
+-        ; stg_linter False "Pre-unarise" binds
+-        ; let un_binds = unarise us binds
+-        ; stg_linter True "Unarise" un_binds
++        ; dump_when Opt_D_dump_stg "STG syntax:" binds'
+ 
+-        ; dumpIfSet_dyn dflags Opt_D_dump_stg "STG syntax:"
+-                        (pprStgTopBindings un_binds)
+-
+-        ; foldM do_stg_pass un_binds (getStgToDo dflags)
+-        }
++        ; return binds'
++   }
+ 
+   where
+-    stg_linter unarised
+-      | gopt Opt_DoStgLinting dflags = lintStgTopBindings dflags unarised
++    stg_linter what
++      | gopt Opt_DoStgLinting dflags = lintStgTopBindings dflags what
+       | otherwise                    = \ _whodunnit _binds -> return ()
+ 
+     -------------------------------------------
++    do_stg_pass :: [StgTopBinding] -> StgToDo -> StgM [StgTopBinding]
+     do_stg_pass binds to_do
+       = case to_do of
+-          D_stg_stats ->
+-             trace (showStgStats binds) (return binds)
++          StgDoNothing ->
++            return binds
++
++          StgStats ->
++            trace (showStgStats binds) (return binds)
+ 
+-          StgCSE ->
+-             {-# SCC "StgCse" #-}
+-             let
+-                 binds' = stgCse binds
+-             in
+-             end_pass "StgCse" binds'
++          StgCSE -> do
++            let binds' = {-# SCC "StgCse" #-} stgCse binds
++            end_pass "StgCse" binds'
++
++          StgLiftLams -> do
++            us <- getUniqueSupplyM
++            let binds' = {-# SCC "StgLiftLams" #-} stgLiftLams dflags us binds
++            end_pass "StgLiftLams" binds'
++
++          StgUnarise -> do
++            dump_when Opt_D_dump_stg "Pre unarise:" binds
++            us <- getUniqueSupplyM
++            liftIO (stg_linter False "Pre-unarise" binds)
++            let binds' = unarise us binds
++            liftIO (stg_linter True "Unarise" binds')
++            return binds'
++
++    dump_when flag header binds
++      = liftIO (dumpIfSet_dyn dflags flag header (pprStgTopBindings binds))
+ 
+     end_pass what binds2
+-      = do -- report verbosely, if required
+-           dumpIfSet_dyn dflags Opt_D_verbose_stg2stg what
+-              (pprStgTopBindings binds2)
+-           stg_linter True what binds2
+-           return binds2
++      = liftIO $ do -- report verbosely, if required
++          dumpIfSet_dyn dflags Opt_D_verbose_stg2stg what
++            (vcat (map ppr binds2))
++          stg_linter False what binds2
++          return binds2
+ 
+ -- -----------------------------------------------------------------------------
+ -- StgToDo:  abstraction of stg-to-stg passes to run.
+@@ -78,12 +104,29 @@ stg2stg dflags binds
+ -- | Optional Stg-to-Stg passes.
+ data StgToDo
+   = StgCSE
+-  | D_stg_stats
+-
+--- | Which optional Stg-to-Stg passes to run. Depends on flags, ways etc.
++  -- ^ Common subexpression elimination
++  | StgLiftLams
++  -- ^ Lambda lifting closure variables, trading stack/register allocation for
++  -- heap allocation
++  | StgStats
++  | StgUnarise
++  -- ^ Mandatory unarise pass, desugaring unboxed tuple and sum binders
++  | StgDoNothing
++  -- ^ Useful for building up 'getStgToDo'
++  deriving Eq
++
++-- | Which Stg-to-Stg passes to run. Depends on flags, ways etc.
+ getStgToDo :: DynFlags -> [StgToDo]
+-getStgToDo dflags
+-  = [ StgCSE                   | gopt Opt_StgCSE dflags] ++
+-    [ D_stg_stats              | stg_stats ]
+-  where
+-        stg_stats = gopt Opt_StgStats dflags
++getStgToDo dflags =
++  filter (/= StgDoNothing)
++    [ mandatory StgUnarise
++    , optional Opt_StgCSE StgCSE
++    , optional Opt_StgLiftLams StgLiftLams
++    , optional Opt_StgStats StgStats
++    ] where
++      optional opt = runWhen (gopt opt dflags)
++      mandatory = id
++
++runWhen :: Bool -> StgToDo -> StgToDo
++runWhen True todo = todo
++runWhen _    _    = StgDoNothing
+diff --git a/compiler/simplStg/StgLiftLams.hs b/compiler/simplStg/StgLiftLams.hs
+new file mode 100644
+index 0000000000..1d4d70996b
+--- /dev/null
++++ b/compiler/simplStg/StgLiftLams.hs
+@@ -0,0 +1,11 @@
++-- | Implements a selective lambda lifter, running late in the optimisation
++-- pipeline.
++--
++-- The transformation itself is implemented in "StgLiftLams.Transformation".
++-- If you are interested in the cost model that is employed to decide whether
++-- to lift a binding or not, look at "StgLiftLams.Analysis".
++-- "StgLiftLams.LiftM" contains the transformation monad that hides away some
++-- plumbing of the transformation.
++module StgLiftLams (Transformation.stgLiftLams) where
++
++import qualified StgLiftLams.Transformation as Transformation
+diff --git a/compiler/simplStg/StgLiftLams/Analysis.hs b/compiler/simplStg/StgLiftLams/Analysis.hs
+new file mode 100644
+index 0000000000..9fa5a93ca7
+--- /dev/null
++++ b/compiler/simplStg/StgLiftLams/Analysis.hs
+@@ -0,0 +1,445 @@
++{-# LANGUAGE BangPatterns #-}
++
++-- | Provides the heuristics for when it's beneficial to lambda lift bindings.
++-- Most significantly, this employs a cost model to estimate impact on heap
++-- allocations, by looking at an STG expression's 'Skeleton'.
++module StgLiftLams.Analysis (
++    -- * AST annotation
++    Skeleton, LetBoundInfo, BinderInfo, binderInfoBndr,
++    StgBindingSkel, StgExprSkel, StgRhsSkel, StgAltSkel, tagSkeletonTopBind,
++    -- * Lifting decision
++    goodToLift,
++    closureGrowth -- Exported just for the docs
++  ) where
++
++import GhcPrelude
++
++import BasicTypes
++import Demand
++import DynFlags
++import Id
++import SMRep ( WordOff )
++import StgSyn
++import qualified StgCmmArgRep
++import qualified StgCmmClosure
++import qualified StgCmmLayout
++import Outputable
++import VarEnv
++import VarSet
++
++llTrace :: String -> SDoc -> a -> a
++llTrace _ _ c = c
++-- llTrace a b c = pprTrace a b c
++
++freeVarsOfRhs :: GenStgRhs bndr occ -> [occ]
++freeVarsOfRhs (StgRhsCon _ _ args) = [ id | StgVarArg id <- args ]
++freeVarsOfRhs (StgRhsClosure _ _ fvs _ _ _) = fvs
++
++-- | Captures details of the syntax tree relevant to the cost model, such as
++-- closures, multi-shot lambdas and case expressions.
++data Skeleton
++  = ClosureSk !Id !DIdSet {- ^ free vars -} !Skeleton
++  | RhsSk !DmdShell {- ^ how often the RHS was entered -} !Skeleton
++  | AltSk !Skeleton !Skeleton
++  | BothSk !Skeleton !Skeleton
++  | NilSk
++
++bothSk :: Skeleton -> Skeleton -> Skeleton
++bothSk NilSk b = b
++bothSk a NilSk = a
++bothSk a b     = BothSk a b
++
++altSk :: Skeleton -> Skeleton -> Skeleton
++altSk NilSk b = b
++altSk a NilSk = a
++altSk a b     = AltSk a b
++
++rhsSk :: DmdShell -> Skeleton -> Skeleton
++rhsSk _        NilSk = NilSk
++rhsSk body_dmd skel  = RhsSk body_dmd skel
++
++-- | Information attached to a binder in case it's not a 'BoringBinder'.
++data LetBoundInfo
++  = LetBoundInfo
++  { lbi_bndr :: !Id
++  , lbi_rhs :: !Skeleton
++  , lbi_scope :: !Skeleton
++  }
++
++-- | The binder type to be put in @id@ holes in 'GenStgExpr's.
++data BinderInfo
++  = BindsClosure !LetBoundInfo -- ^ Let(-no-escape)-bound things
++  | BoringBinder !Id           -- ^ Every other kind of binder
++
++-- | Gets the bound 'Id' out a 'BinderInfo'.
++binderInfoBndr :: BinderInfo -> Id
++binderInfoBndr (BoringBinder bndr) = bndr
++binderInfoBndr (BindsClosure lbi) = lbi_bndr lbi
++
++type StgExprSkel = GenStgExpr BinderInfo Id
++type StgBindingSkel = GenStgBinding BinderInfo Id
++type StgRhsSkel = GenStgRhs BinderInfo Id
++type StgAltSkel = GenStgAlt BinderInfo Id
++
++instance Outputable Skeleton where
++  ppr NilSk = text ""
++  ppr (AltSk l r) = vcat
++    [ text "{ " <+> ppr l
++    , text "ALT"
++    , text "  " <+> ppr r
++    , text "}"
++    ]
++  ppr (BothSk l r) = ppr l $$ ppr r
++  ppr (ClosureSk f fvs body) = ppr f <+> ppr fvs $$ nest 2 (ppr body)
++  ppr (RhsSk body_dmd body) = hcat
++    [ text "λ["
++    , ppr str
++    , text ", "
++    , ppr use
++    , text "]. "
++    , ppr body
++    ]
++    where
++      str
++        | isStrictDmd body_dmd = '1'
++        | otherwise = '0'
++      use
++        | isAbsDmd body_dmd = '0'
++        | isUsedOnce body_dmd = '1'
++        | otherwise = 'ω'
++
++instance Outputable LetBoundInfo where
++  ppr lbi = hang header 2 body
++    where
++      header = hcat
++        [ ppr (lbi_bndr lbi)
++        , text "="
++        ]
++      body = ppr (lbi_rhs lbi)
++
++instance Outputable BinderInfo where
++  ppr = ppr . binderInfoBndr
++
++instance OutputableBndr BinderInfo where
++  pprBndr b = pprBndr b . binderInfoBndr
++  pprPrefixOcc = pprPrefixOcc . binderInfoBndr
++  pprInfixOcc = pprInfixOcc . binderInfoBndr
++  bndrIsJoin_maybe = bndrIsJoin_maybe . binderInfoBndr
++
++-- | Tags every binder with its 'BinderInfo' by condensing expressions into
++-- 'Skeleton's.
++tagSkeletonTopBind :: StgBinding -> StgBindingSkel
++-- NilSk is OK when tagging top-level bindings
++-- Also, top-level things are never let-no-escapes (thus we pass False)
++tagSkeletonTopBind = snd . tagSkeletonBinding NilSk False
++
++tagSkeletonExpr :: StgExpr -> (Skeleton, StgExprSkel)
++tagSkeletonExpr (StgLit lit) = (NilSk, StgLit lit)
++tagSkeletonExpr (StgConApp con args tys) = (NilSk, StgConApp con args tys)
++tagSkeletonExpr (StgOpApp op args ty) = (NilSk, StgOpApp op args ty)
++tagSkeletonExpr (StgApp f args) = (NilSk, StgApp f args)
++tagSkeletonExpr (StgLam _ _) = pprPanic "stgLiftLams" (text "StgLam")
++tagSkeletonExpr (StgCase scrut bndr ty alts) = (skel, StgCase scrut' bndr' ty alts')
++  where
++    (scrut_skel, scrut') = tagSkeletonExpr scrut
++    (alt_skels, alts') = unzip (map tagSkeletonAlt alts)
++    skel = bothSk scrut_skel (foldr altSk NilSk alt_skels)
++    bndr' = BoringBinder bndr
++tagSkeletonExpr (StgTick t e) = (skel, StgTick t e')
++  where
++    (skel, e') = tagSkeletonExpr e
++tagSkeletonExpr (StgLet bind body) = (skel, StgLet bind' body')
++  where
++    (body_skel, body') = tagSkeletonExpr body
++    (let_bound_infos, bind') = tagSkeletonBinding body_skel False bind
++    skel = foldr (bothSk . lbi_rhs) body_skel let_bound_infos
++tagSkeletonExpr (StgLetNoEscape bind body) = (skel, StgLetNoEscape bind' body')
++  where
++    (body_skel, body') = tagSkeletonExpr body
++    (let_bound_infos, bind') = tagSkeletonBinding body_skel True bind
++    skel = foldr (bothSk . lbi_rhs) body_skel let_bound_infos
++
++tagSkeletonBinding :: Skeleton -> Bool -> StgBinding -> ([LetBoundInfo], StgBindingSkel)
++tagSkeletonBinding body_scope is_lne (StgNonRec bndr rhs)
++  = ([lbi], StgNonRec (BindsClosure lbi) rhs')
++  where
++    (skel_rhs, rhs') = tagSkeletonRhs bndr rhs
++    -- Compared to the recursive case, this exploits the fact that @bndr@ is
++    -- never free in @rhs@.
++    lbi
++      = LetBoundInfo
++      { lbi_bndr = bndr
++      , lbi_rhs = if is_lne
++          then skel_rhs -- no closure is allocated for let-no-escapes
++          else ClosureSk bndr (mkDVarSet $ freeVarsOfRhs rhs') skel_rhs
++      , lbi_scope = body_scope
++      }
++tagSkeletonBinding body_scope is_lne (StgRec pairs) = (lbis, StgRec pairs')
++  where
++    (bndrs, _) = unzip pairs
++    -- Local recursive STG bindings also regard the defined binders as free
++    -- vars. We want to delete those for our cost model, as these are known
++    -- calls anyway when we add them to the same top-level recursive group as
++    -- the top-level binding currently being analysed.
++    fvs_set_of_rhs rhs = minusDVarSet (mkDVarSet (freeVarsOfRhs rhs)) (mkDVarSet bndrs)
++    skel_rhs_and_rhss' = map (uncurry tagSkeletonRhs) pairs
++    -- @skel_rhss@ aren't yet wrapped in closures. We'll do that in a moment,
++    -- but we also need the un-wrapped skeletons for calculating the @lbi_scope@
++    -- of the group, as the outer closures don't contribute to closure growth
++    -- when we lift this specific binding.
++    scope = foldr (bothSk . fst) body_scope skel_rhs_and_rhss'
++    -- Now we can build the actual 'LetBoundInfo's just by iterating over each
++    -- bind pair.
++    (lbis, pairs')
++      = unzip
++      . map (\(lbi, rhs') -> (lbi, (BindsClosure lbi, rhs')))
++      . zipWith (\bndr (skel_rhs, rhs') -> (mk_lbi bndr skel_rhs rhs', rhs')) bndrs
++      $ skel_rhs_and_rhss'
++    mk_lbi bndr skel_rhs rhs'
++      = LetBoundInfo
++      { lbi_bndr = bndr
++      -- Here, we finally add the closure around each @skel_rhs@.
++      , lbi_rhs = if is_lne
++          then skel_rhs -- no closure is allocated for let-no-escapes
++          else ClosureSk bndr (fvs_set_of_rhs rhs') skel_rhs
++      -- Note that all binders share the same scope.
++      , lbi_scope = scope
++      }
++
++tagSkeletonRhs :: Id -> StgRhs -> (Skeleton, StgRhsSkel)
++tagSkeletonRhs _ (StgRhsCon ccs dc args) = (NilSk, StgRhsCon ccs dc args)
++tagSkeletonRhs bndr (StgRhsClosure ccs sbi fvs upd bndrs body)
++  = (rhs_skel, StgRhsClosure ccs sbi fvs upd bndrs' body')
++  where
++    bndrs' = map BoringBinder bndrs
++    (body_skel, body') = tagSkeletonExpr body
++    rhs_skel = rhsSk (rhsDmdShell bndr) body_skel
++
++-- | How many times will the lambda body of the RHS bound to the given
++-- identifier be evaluated, relative to its defining context? This function
++-- computes the answer in form of a 'DmdShell'.
++rhsDmdShell :: Id -> DmdShell
++rhsDmdShell bndr
++  | is_thunk = oneifyDmd ds
++  | otherwise = peelManyCalls (idArity bndr) cd
++  where
++    is_thunk = idArity bndr == 0
++    -- Let's pray idDemandInfo is still OK after unarise...
++    (ds, cd) = toCleanDmd (idDemandInfo bndr) (idType bndr)
++
++tagSkeletonAlt :: StgAlt -> (Skeleton, StgAltSkel)
++tagSkeletonAlt (con, bndrs, rhs) = (alt_skel, (con, map BoringBinder bndrs, rhs'))
++  where
++    (alt_skel, rhs') = tagSkeletonExpr rhs
++
++-- | Combines several heuristics to decide whether to lambda-lift a given
++-- @let@-binding to top-level.
++goodToLift
++  :: DynFlags
++  -> TopLevelFlag
++  -> RecFlag
++  -> (DIdSet -> DIdSet) -- ^ An expander function, turning 'InId's into
++                        -- 'OutId's. See 'StgLiftLams.LiftM.liftedIdsExpander'.
++  -> [(BinderInfo, StgRhsSkel)]
++  -> Maybe DIdSet       -- ^ @Just abs_ids@ <=> This binding is beneficial to
++                        -- lift and @abs_ids@ are the variables it would
++                        -- abstract over
++goodToLift dflags top_lvl rec_flag expander pairs = decide
++  [ ("top-level", isTopLevel top_lvl)
++  , ("memoized", any_memoized)
++  , ("undersaturated calls", has_undersat_calls)
++  , ("join point", is_join_point)
++  , ("abstracts join points", abstracts_join_ids)
++  , ("abstracts known local function", abstracts_known_local_fun)
++  , ("args spill on stack", args_spill_on_stack)
++  , ("increases allocation", inc_allocs)
++  ] where
++      decide deciders
++        | not (fancy_or deciders)
++        = llTrace "stgLiftLams:lifting"
++                  (ppr bndrs <+> ppr abs_ids $$
++                   ppr allocs $$
++                   ppr scope) $
++          Just abs_ids
++        | otherwise
++        = Nothing
++      ppr_deciders = vcat . map (text . fst) . filter snd
++      fancy_or deciders
++        = llTrace "stgLiftLams:goodToLift" (ppr bndrs $$ ppr_deciders deciders) $
++          any snd deciders
++
++      bndrs = map (binderInfoBndr . fst) pairs
++      bndrs_set = mkVarSet bndrs
++      rhss = map snd pairs
++
++      -- First objective: Calculate @abs_ids@, e.g. the former free variables
++      -- the lifted binding would abstract over. This called the required set in
++      -- the Johnsson paper. We have to merge the free variables of all RHS to
++      -- get the set of variables that will have to be passed through
++      -- parameters.
++      fvs = unionDVarSets (map (mkDVarSet . freeVarsOfRhs) rhss)
++      -- To lift the binding to top-level, we want to delete the lifted binders
++      -- themselves from the free var set. Local let bindings track recursive
++      -- occurrences in their free variable set. We neither want to apply our
++      -- cost model to them (see 'tagSkeletonRhs'), nor pass them as parameters
++      -- when lifted, as these are known calls. We call the resulting set the
++      -- identifiers we abstract over, thus @abs_ids@. These are all 'OutId's.
++      -- We will save the set in 'LiftM.e_expansions' for each of the variables
++      -- if we perform the lift.
++      abs_ids = expander (delDVarSetList fvs bndrs)
++
++      -- We don't lift updatable thunks or constructors
++      any_memoized = any is_memoized_rhs rhss
++      is_memoized_rhs StgRhsCon{} = True
++      is_memoized_rhs (StgRhsClosure _ _ _ upd _ _) = isUpdatable upd
++
++      -- Don't create partial applications. Probably subsumes @any_memoized@.
++      has_undersat_calls = any undersat rhss
++      undersat StgRhsCon{} = True
++      undersat (StgRhsClosure _ sbi _ _ _ _) = not (satCallsOnly sbi)
++
++      -- These don't allocate anyway.
++      is_join_point = any isJoinId bndrs
++
++      -- Abstracting over join points/let-no-escapes spoils them.
++      abstracts_join_ids = any isJoinId (dVarSetElems abs_ids)
++
++      -- Abstracting over known local functions that aren't floated themselves
++      -- turns a known, fast call into an unknown, slow call:
++      --
++      --    let f x = ...
++      --        g y = ... f x ... -- this was a known call
++      --    in g 4
++      --
++      -- After lifting @g@, but not @f@:
++      --
++      --    l_g f y = ... f y ... -- this is now an unknown call
++      --    let f x = ...
++      --    in l_g f 4
++      --
++      -- We can abuse the results of arity analysis for this:
++      -- idArity f > 0 ==> known
++      known_fun id = idArity id > 0
++      abstracts_known_local_fun
++        = not (liftLamsKnown dflags) && any known_fun (dVarSetElems abs_ids)
++
++      -- Number of arguments of a RHS in the current binding group if we decide
++      -- to lift it
++      n_args
++        = length
++        . StgCmmClosure.nonVoidIds -- void parameters don't appear in Cmm
++        . (dVarSetElems abs_ids ++)
++        . rhsLambdaBndrs
++      max_n_args
++        | isRec rec_flag = liftLamsRecArgs dflags
++        | otherwise      = liftLamsNonRecArgs dflags
++      -- We have 5 hardware registers on x86_64 to pass arguments in. Any excess
++      -- args are passed on the stack, which means slow memory accesses
++      args_spill_on_stack
++        | Just n <- max_n_args = maximum (map n_args rhss) > n
++        | otherwise = False
++
++      -- We only perform the lift if allocations didn't increase.
++      -- Note that @clo_growth@ will be 'infinity' if there was positive growth
++      -- under a multi-shot lambda.
++      -- Also, abstracting over LNEs is unacceptable. LNEs might return
++      -- unlifted tuples, which idClosureFootprint can't cope with.
++      inc_allocs = abstracts_join_ids || allocs > 0
++      allocs = clo_growth + mkIntWithInf (negate closuresSize)
++      -- We calculate and then add up the size of each binding's closure.
++      -- GHC does not currently share closure environments, and we either lift
++      -- the entire recursive binding group or none of it.
++      closuresSize = sum $ flip map rhss $ \rhs ->
++        closureSize dflags
++        . dVarEnvElts
++        . expander
++        . flip dVarSetMinusVarSet bndrs_set
++        . mkDVarSet
++        $ freeVarsOfRhs rhs
++      clo_growth = closureGrowth expander (idClosureFootprint dflags) bndrs_set abs_ids scope
++      scope = case pairs of
++        (BindsClosure lbi, _):_ -> lbi_scope lbi
++        (BoringBinder id, _):_ -> pprPanic "goodToLift" (text "Can't lift boring binders" $$ ppr id)
++        [] -> pprPanic "goodToLift" (text "empty binding group")
++
++rhsLambdaBndrs :: StgRhsSkel -> [Id]
++rhsLambdaBndrs StgRhsCon{} = []
++rhsLambdaBndrs (StgRhsClosure _ _ _ _ bndrs _) = map binderInfoBndr bndrs
++
++-- | The size in words of a function closure closing over the given 'Id's,
++-- including the header.
++closureSize :: DynFlags -> [Id] -> WordOff
++closureSize dflags ids = words
++  where
++    (words, _, _)
++      -- Functions have a StdHeader (as opposed to ThunkHeader).
++      -- Note that mkVirtHeadOffsets will account for profiling headers, so
++      -- lifting decisions vary if we begin to profile stuff. Maybe we shouldn't
++      -- do this or deactivate profiling in @dflags@?
++      = StgCmmLayout.mkVirtHeapOffsets dflags StgCmmLayout.StdHeader
++      . StgCmmClosure.addIdReps
++      . StgCmmClosure.nonVoidIds
++      $ ids
++
++-- | The number of words a single 'Id' adds to a closure's size.
++-- Note that this can't handle unboxed tuples (which may still be present in
++-- let-no-escapes, even after Unarise), in which case
++-- @'StgCmmClosure.idPrimRep'@ will crash.
++idClosureFootprint:: DynFlags -> Id -> WordOff
++idClosureFootprint dflags
++  = StgCmmArgRep.argRepSizeW dflags
++  . StgCmmArgRep.idArgRep
++
++-- | @closureGrowth expander sizer f fvs@ computes the closure growth in words
++-- as a result of lifting @f@ to top-level. If there was any growing closure
++-- under a multi-shot lambda, the result will be 'infinity'.
++closureGrowth
++  :: (DIdSet -> DIdSet) -- ^ Expands outer free ids that were lifted to their free vars
++  -> (Id -> Int)        -- ^ Computes the closure footprint of an identifier
++  -> IdSet              -- ^ Binding group for which lifting is to be decided
++  -> DIdSet             -- ^ Free vars of the whole binding group prior to lifting it.
++                        --   These must be available at call sites if we decide
++                        --   to lift the binding group.
++  -> Skeleton           -- ^ Abstraction of the scope of the function
++  -> IntWithInf         -- ^ Closure growth. 'infinity' indicates there was
++                        --   growth under a (multi-shot) lambda.
++closureGrowth expander sizer group abs_ids = go
++  where
++    go NilSk = 0
++    go (BothSk a b) = go a + go b
++    go (AltSk a b) = max (go a) (go b)
++    go (ClosureSk _ clo_fvs rhs)
++      -- If no binder of the @group@ occurs free in the closure, the lifting
++      -- won't have any effect on it and we can omit the recursive call.
++      | n_occs == 0 = 0
++      -- Otherwise, we account the cost of allocating the closure and add it to
++      -- the closure growth of its RHS.
++      | otherwise   = mkIntWithInf cost + go rhs
++      where
++        n_occs = sizeDVarSet (clo_fvs' `dVarSetIntersectVarSet` group)
++        -- What we close over considering prior lifting decisions
++        clo_fvs' = expander clo_fvs
++        -- Variables that would additionally occur free in the closure body if we
++        -- lift @f@
++        newbies = abs_ids `minusDVarSet` clo_fvs'
++        -- Lifting @f@ removes @f@ from the closure but adds all @newbies@
++        cost = foldDVarSet (\id size -> sizer id + size) 0 newbies - n_occs
++    go (RhsSk body_dmd body)
++      -- The conservative assumption would be that
++      --   1. Every RHS with positive growth would be called multiple times,
++      --      modulo thunks.
++      --   2. Every RHS with negative growth wouldn't be called at all.
++      --
++      -- In the first case, we'd have to return 'infinity', while in the
++      -- second case, we'd have to return 0. But we can do far better
++      -- considering information from the demand analyser, which provides us
++      -- with conservative estimates on minimum and maximum evaluation
++      -- cardinality. The @body_dmd@ part of 'RhsSk' is the result of
++      -- 'rhsDmdShell' and accurately captures the cardinality of the RHSs body
++      -- relative to its defining context.
++      | isAbsDmd body_dmd   = 0
++      | cg <= 0             = if isStrictDmd body_dmd then cg else 0
++      | isUsedOnce body_dmd = cg
++      | otherwise           = infinity
++      where
++        cg = go body
+diff --git a/compiler/simplStg/StgLiftLams/LiftM.hs b/compiler/simplStg/StgLiftLams/LiftM.hs
+new file mode 100644
+index 0000000000..38e8e5fe07
+--- /dev/null
++++ b/compiler/simplStg/StgLiftLams/LiftM.hs
+@@ -0,0 +1,348 @@
++{-# LANGUAGE CPP #-}
++{-# LANGUAGE GeneralizedNewtypeDeriving #-}
++
++-- | Hides away distracting bookkeeping while lambda lifting into a 'LiftM'
++-- monad.
++module StgLiftLams.LiftM (
++    decomposeStgBinding, mkStgBinding,
++    Env (..),
++    -- * Handling floats
++    -- $floats
++    FloatLang (..), collectFloats, -- Exported just for the docs
++    -- * Transformation monad
++    LiftM, runLiftM, withCaffyness,
++    -- ** Adding bindings
++    startBindingGroup, endBindingGroup, addTopStringLit, addLiftedBinding,
++    -- ** Substitution and binders
++    withSubstBndr, withSubstBndrs, withLiftedBndr, withLiftedBndrs,
++    -- ** Occurrences
++    substOcc, isLifted, formerFreeVars, liftedIdsExpander
++  ) where
++
++#include "HsVersions.h"
++
++import GhcPrelude
++
++import BasicTypes
++import CostCentre ( isCurrentCCS, dontCareCCS )
++import DynFlags
++import FastString
++import Id
++import IdInfo
++import Name
++import Outputable
++import OrdList
++import StgSubst
++import StgSyn
++import Type
++import UniqSupply
++import Util
++import VarEnv
++import VarSet
++
++import Control.Arrow ( second )
++import Control.Monad.Trans.Class
++import Control.Monad.Trans.RWS.Strict ( RWST, runRWST )
++import qualified Control.Monad.Trans.RWS.Strict as RWS
++import Control.Monad.Trans.Cont ( ContT (..) )
++import Data.ByteString ( ByteString )
++
++-- | @uncurry 'mkStgBinding' . 'decomposeStgBinding' = id@
++decomposeStgBinding :: GenStgBinding bndr occ -> (RecFlag, [(bndr, GenStgRhs bndr occ)])
++decomposeStgBinding (StgRec pairs) = (Recursive, pairs)
++decomposeStgBinding (StgNonRec bndr rhs) = (NonRecursive, [(bndr, rhs)])
++
++mkStgBinding :: RecFlag -> [(bndr, GenStgRhs bndr occ)] -> GenStgBinding bndr occ
++mkStgBinding Recursive = StgRec
++mkStgBinding NonRecursive = uncurry StgNonRec . head
++
++-- | Environment threaded around in a scoped, @Reader@-like fashion.
++data Env
++  = Env
++  { e_dflags     :: !DynFlags
++  -- ^ Read-only.
++  , e_subst      :: !Subst
++  -- ^ We need to track the renamings of local 'InId's to their lifted 'OutId',
++  -- because shadowing might make a closure's free variables unavailable at its
++  -- call sites. Consider:
++  -- @
++  --    let f y = x + y in let x = 4 in f x
++  -- @
++  -- Here, @f@ can't be lifted to top-level, because its free variable @x@ isn't
++  -- available at its call site.
++  , e_expansions :: !(IdEnv DIdSet)
++  -- ^ Lifted 'Id's don't occur as free variables in any closure anymore, because
++  -- they are bound at the top-level. Every occurrence must supply the formerly
++  -- free variables of the lifted 'Id', so they in turn become free variables of
++  -- the call sites. This environment tracks this expansion from lifted 'Id's to
++  -- their free variables.
++  --
++  -- 'InId's to 'OutId's.
++  --
++  -- Invariant: 'Id's not present in this map won't be substituted.
++  , e_in_caffy_context :: !Bool
++  -- ^ Are we currently analysing within a caffy context (e.g. the containing
++  -- top-level binder's 'idCafInfo' is 'MayHaveCafRefs')? If not, we can safely
++  -- assume that functions we lift out aren't caffy either.
++  }
++
++emptyEnv :: DynFlags -> Env
++emptyEnv dflags = Env dflags emptySubst emptyVarEnv False
++
++
++-- Note [Handling floats]
++-- ~~~~~~~~~~~~~~~~~~~~~~
++-- $floats
++-- #floats#
++-- Consider the following expression:
++--
++-- @
++--     f x =
++--       let g y = ... f y ...
++--       in g x
++-- @
++--
++-- What happens when we want to lift @g@? Normally, we'd put the lifted @l_g@
++-- binding above the binding for @f@:
++--
++-- @
++--     g f y = ... f y ...
++--     f x = g f x
++-- @
++--
++-- But this very unnecessarily turns a known call to @f@ into an unknown one, in
++-- addition to complicating matters for the analysis.
++-- Instead, we'd really like to put both functions in the same recursive group,
++-- thereby preserving the known call:
++--
++-- @
++--     Rec {
++--       g y = ... f y ...
++--       f x = g x
++--     }
++-- @
++--
++-- But we don't want this to happen for just /any/ binding. That would create
++-- possibly huge recursive groups in the process, calling for an occurrence
++-- analyser on STG.
++-- So, we need to track when we lift a binding out of a recursive RHS and add
++-- the binding to the same recursive group as the enclosing recursive binding
++-- (which must have either already been at the top-level or decided to be
++-- lifted itself in order to preserve the known call).
++--
++-- This is done by expressing this kind of nesting structure as a 'Writer' over
++-- @['FloatLang']@ and flattening this expression in 'runLiftM' by a call to
++-- 'collectFloats'.
++-- API-wise, the analysis will not need to know about the whole 'FloatLang'
++-- business and will just manipulate it indirectly through actions in 'LiftM'.
++
++-- | We need to detect when we are lifting something out of the RHS of a
++-- recursive binding (c.f. #floats), in which case that binding needs to be
++-- added to the same top-level recursive group. This requires we detect a
++-- certain nesting structure, which is encoded by 'StartBindingGroup' and
++-- 'EndBindingGroup'.
++--
++-- Although 'collectFloats' will only ever care if the current binding to be
++-- lifted (through 'LiftedBinding') will occur inside such a binding group or
++-- not, e.g. doesn't care about the nesting level as long as its greater than 0.
++data FloatLang
++  = StartBindingGroup
++  | EndBindingGroup
++  | PlainTopBinding OutStgTopBinding
++  | LiftedBinding OutStgBinding
++
++instance Outputable FloatLang where
++  ppr StartBindingGroup = char '('
++  ppr EndBindingGroup = char ')'
++  ppr (PlainTopBinding StgTopStringLit{}) = text "<str>"
++  ppr (PlainTopBinding (StgTopLifted b)) = ppr (LiftedBinding b)
++  ppr (LiftedBinding bind) = (if isRec rec then char 'r' else char 'n') <+> ppr (map fst pairs)
++    where
++      (rec, pairs) = decomposeStgBinding bind
++
++-- | Flattens an expression in @['FloatLang']@ into an STG program, see #floats.
++-- Important pre-conditions: The nesting of opening 'StartBindinGroup's and
++-- closing 'EndBindinGroup's is balanced. Also, it is crucial that every binding
++-- group has at least one recursive binding inside. Otherwise there's no point
++-- in announcing the binding group in the first place and an @ASSERT@ will
++-- trigger.
++collectFloats :: [FloatLang] -> [OutStgTopBinding]
++collectFloats = go (0 :: Int) []
++  where
++    go 0 [] [] = []
++    go _ _ [] = pprPanic "collectFloats" (text "unterminated group")
++    go n binds (f:rest) = case f of
++      StartBindingGroup -> go (n+1) binds rest
++      EndBindingGroup
++        | n == 0 -> pprPanic "collectFloats" (text "no group to end")
++        | n == 1 -> StgTopLifted (merge_binds binds) : go 0 [] rest
++        | otherwise -> go (n-1) binds rest
++      PlainTopBinding top_bind
++        | n == 0 -> top_bind : go n binds rest
++        | otherwise -> pprPanic "collectFloats" (text "plain top binding inside group")
++      LiftedBinding bind
++        | n == 0 -> StgTopLifted (rm_cccs bind) : go n binds rest
++        | otherwise -> go n (bind:binds) rest
++
++    map_rhss f = uncurry mkStgBinding . second (map (second f)) . decomposeStgBinding
++    rm_cccs = map_rhss removeRhsCCCS
++    merge_binds binds = ASSERT( any is_rec binds )
++                        StgRec (concatMap (snd . decomposeStgBinding . rm_cccs) binds)
++    is_rec StgRec{} = True
++    is_rec _ = False
++
++-- | Omitting this makes for strange closure allocation schemes that crash the
++-- GC.
++removeRhsCCCS :: GenStgRhs id occ -> GenStgRhs id occ
++removeRhsCCCS (StgRhsClosure ccs sbi fvs upd bndrs body)
++  | isCurrentCCS ccs
++  = StgRhsClosure dontCareCCS sbi fvs upd bndrs body
++removeRhsCCCS (StgRhsCon ccs con args)
++  | isCurrentCCS ccs
++  = StgRhsCon dontCareCCS con args
++removeRhsCCCS rhs = rhs
++
++-- | The analysis monad consists of the following 'RWST' components:
++--
++--     * 'Env': Reader-like context. Contains a substitution, info about how
++--       how lifted identifiers are to be expanded into applications and details
++--       such as 'DynFlags' and a flag helping with determining if a lifted
++--       binding is caffy.
++--
++--     * @'OrdList' 'FloatLang'@: Writer output for the resulting STG program.
++--
++--     * No pure state component
++--
++--     * But wrapping around 'UniqSM' for generating fresh lifted binders.
++--       (The @uniqAway@ approach could give the same name to two different
++--       lifted binders, so this is necessary.)
++newtype LiftM a
++  = LiftM { unwrapLiftM :: RWST Env (OrdList FloatLang) () UniqSM a }
++  deriving (Functor, Applicative, Monad)
++
++instance HasDynFlags LiftM where
++  getDynFlags = LiftM (RWS.asks e_dflags)
++
++instance MonadUnique LiftM where
++  getUniqueSupplyM = LiftM (lift getUniqueSupplyM)
++  getUniqueM = LiftM (lift getUniqueM)
++  getUniquesM = LiftM (lift getUniquesM)
++
++runLiftM :: DynFlags -> UniqSupply -> LiftM () -> [OutStgTopBinding]
++runLiftM dflags us (LiftM m) = collectFloats (fromOL floats)
++  where
++    (_, _, floats) = initUs_ us (runRWST m (emptyEnv dflags) ())
++
++-- | Assumes a given caffyness for the execution of the passed action, which
++-- influences the 'cafInfo' of lifted bindings.
++withCaffyness :: Bool -> LiftM a -> LiftM a
++withCaffyness caffy action
++  = LiftM (RWS.local (\e -> e { e_in_caffy_context = caffy }) (unwrapLiftM action))
++
++-- | Writes a plain 'StgTopStringLit' to the output.
++addTopStringLit :: OutId -> ByteString -> LiftM ()
++addTopStringLit id = LiftM . RWS.tell . unitOL . PlainTopBinding . StgTopStringLit id
++
++-- | Starts a recursive binding group. See #floats# and 'collectFloats'.
++startBindingGroup :: LiftM ()
++startBindingGroup = LiftM $ RWS.tell $ unitOL $ StartBindingGroup
++
++-- | Ends a recursive binding group. See #floats# and 'collectFloats'.
++endBindingGroup :: LiftM ()
++endBindingGroup = LiftM $ RWS.tell $ unitOL $ EndBindingGroup
++
++-- | Lifts a binding to top-level. Depending on whether it's declared inside
++-- a recursive RHS (see #floats# and 'collectFloats'), this might be added to
++-- an existing recursive top-level binding group.
++addLiftedBinding :: OutStgBinding -> LiftM ()
++addLiftedBinding = LiftM . RWS.tell . unitOL . LiftedBinding
++
++-- | Takes a binder and a continuation which is called with the substituted
++-- binder. The continuation will be evaluated in a 'LiftM' context in which that
++-- binder is deemed in scope. Think of it as a 'RWS.local' computation: After
++-- the continuation finishes, the new binding won't be in scope anymore.
++withSubstBndr :: Id -> (Id -> LiftM a) -> LiftM a
++withSubstBndr bndr inner = LiftM $ do
++  subst <- RWS.asks e_subst
++  let (bndr', subst') = substBndr bndr subst
++  RWS.local (\e -> e { e_subst = subst' }) (unwrapLiftM (inner bndr'))
++
++-- | See 'withSubstBndr'.
++withSubstBndrs :: Traversable f => f Id -> (f Id -> LiftM a) -> LiftM a
++withSubstBndrs = runContT . traverse (ContT . withSubstBndr)
++
++-- | Similarly to 'withSubstBndr', this function takes a set of variables to
++-- abstract over, the binder to lift (and generate a fresh, substituted name
++-- for) and a continuation in which that fresh, lifted binder is in scope.
++--
++-- It takes care of all the details involved with copying and adjusting the
++-- binder, fresh name generation and caffyness.
++withLiftedBndr :: DIdSet -> Id -> (Id -> LiftM a) -> LiftM a
++withLiftedBndr abs_ids bndr inner = do
++  uniq <- getUniqueM
++  let str = "$l" ++ occNameString (getOccName bndr)
++  let ty = mkLamTypes (dVarSetElems abs_ids) (idType bndr)
++  -- When the enclosing top-level binding is not caffy, then the lifted
++  -- binding will not be caffy either. If we don't recognize this, non-caffy
++  -- things call caffy things and then codegen screws up.
++  in_caffy_ctxt <- LiftM (RWS.asks e_in_caffy_context)
++  let caf_info = if in_caffy_ctxt then MayHaveCafRefs else NoCafRefs
++  let bndr'
++        -- See Note [transferPolyIdInfo] in Id.hs. We need to do this at least
++        -- for arity information.
++        = transferPolyIdInfo bndr (dVarSetElems abs_ids)
++        -- Otherwise we confuse code gen if bndr was not caffy: the new bndr is
++        -- assumed to be caffy and will need an SRT. Transitive call sites might
++        -- not be caffy themselves and subsequently will miss a static link
++        -- field in their closure. Chaos ensues.
++        . flip setIdCafInfo caf_info
++        . mkSysLocalOrCoVar (mkFastString str) uniq
++        $ ty
++  LiftM $ RWS.local
++    (\e -> e
++      { e_subst = extendSubst bndr bndr' $ extendInScope bndr' $ e_subst e
++      , e_expansions = extendVarEnv (e_expansions e) bndr abs_ids
++      })
++    (unwrapLiftM (inner bndr'))
++
++-- | See 'withLiftedBndr'.
++withLiftedBndrs :: Traversable f => DIdSet -> f Id -> (f Id -> LiftM a) -> LiftM a
++withLiftedBndrs abs_ids = runContT . traverse (ContT . withLiftedBndr abs_ids)
++
++-- | Substitutes a binder /occurrence/, which was brought in scope earlier by
++-- 'withSubstBndr'\/'withLiftedBndr'.
++substOcc :: Id -> LiftM Id
++substOcc id = LiftM (RWS.asks (lookupIdSubst id . e_subst))
++
++-- | Whether the given binding was decided to be lambda lifted.
++isLifted :: InId -> LiftM Bool
++isLifted bndr = LiftM (RWS.asks (elemVarEnv bndr . e_expansions))
++
++-- | Returns an empty list for a binding that was not lifted and the list of all
++-- local variables the binding abstracts over (so, exactly the additional
++-- arguments at adjusted call sites) otherwise.
++formerFreeVars :: InId -> LiftM [OutId]
++formerFreeVars f = LiftM $ do
++  expansions <- RWS.asks e_expansions
++  pure $ case lookupVarEnv expansions f of
++    Nothing -> []
++    Just fvs -> dVarSetElems fvs
++
++-- | Creates an /expander function/ for the current set of lifted binders.
++-- This expander function will replace any 'InId' by their corresponding 'OutId'
++-- and, in addition, will expand any lifted binders by the former free variables
++-- it abstracts over.
++liftedIdsExpander :: LiftM (DIdSet -> DIdSet)
++liftedIdsExpander = LiftM $ do
++  expansions <- RWS.asks e_expansions
++  subst <- RWS.asks e_subst
++  -- We use @noWarnLookupIdSubst@ here in order to suppress "not in scope"
++  -- warnings generated by 'lookupIdSubst' due to local bindings within RHS.
++  -- These are not in the InScopeSet of @subst@ and extending the InScopeSet in
++  -- @goodToLift@/@closureGrowth@ before passing it on to @expander@ is too much
++  -- trouble.
++  let go fv set = case lookupVarEnv expansions fv of
++        Nothing -> extendDVarSet set (noWarnLookupIdSubst fv subst) -- Not lifted
++        Just fvs' -> unionDVarSet set fvs'
++  let expander fvs = foldDVarSet go emptyDVarSet fvs
++  pure expander
+diff --git a/compiler/simplStg/StgLiftLams/Transformation.hs b/compiler/simplStg/StgLiftLams/Transformation.hs
+new file mode 100644
+index 0000000000..9ddbc57bdc
+--- /dev/null
++++ b/compiler/simplStg/StgLiftLams/Transformation.hs
+@@ -0,0 +1,160 @@
++{-# LANGUAGE CPP #-}
++
++-- | (Mostly) textbook instance of the lambda lifting transformation,
++-- selecting which bindings to lambda lift by consulting 'goodToLift'.
++module StgLiftLams.Transformation (stgLiftLams) where
++
++#include "HsVersions.h"
++
++import GhcPrelude
++
++import BasicTypes
++import DynFlags
++import Id
++import IdInfo
++import StgLiftLams.Analysis
++import StgLiftLams.LiftM
++import StgSyn
++import Outputable
++import UniqSupply
++import Util
++import VarSet
++import Control.Monad ( when )
++import Data.Maybe ( isNothing )
++
++-- | Lambda lifts bindings to top-level deemed worth lifting (see 'goodToLift').
++stgLiftLams :: DynFlags -> UniqSupply -> [InStgTopBinding] -> [OutStgTopBinding]
++stgLiftLams dflags us = runLiftM dflags us . foldr liftTopLvl (pure ())
++
++liftTopLvl :: InStgTopBinding -> LiftM () -> LiftM ()
++liftTopLvl (StgTopStringLit bndr lit) rest = withSubstBndr bndr $ \bndr' -> do
++  addTopStringLit bndr' lit
++  rest
++liftTopLvl (StgTopLifted bind) rest = do
++  let is_rec = isRec $ fst $ decomposeStgBinding bind
++  when is_rec startBindingGroup
++  withLiftedBind TopLevel (tagSkeletonTopBind bind) $ \mb_bind' -> do
++    -- We signal lifting of a binding through returning Nothing.
++    -- Should never happen for a top-level binding, though, since we are already
++    -- at top-level.
++    case mb_bind' of
++      Nothing -> pprPanic "StgLiftLams" (text "Lifted top-level binding")
++      Just bind' -> addLiftedBinding bind'
++    when is_rec endBindingGroup
++    rest
++
++withLiftedBind :: TopLevelFlag -> StgBindingSkel -> (Maybe OutStgBinding -> LiftM a) -> LiftM a
++withLiftedBind top_lvl bind k
++  | isTopLevel top_lvl
++  = withCaffyness (is_caffy pairs) go
++  | otherwise
++  = go
++  where
++    (rec, pairs) = decomposeStgBinding bind
++    is_caffy = any (mayHaveCafRefs . idCafInfo . binderInfoBndr . fst)
++    go = withLiftedBindPairs top_lvl rec pairs (k . fmap (mkStgBinding rec))
++
++withLiftedBindPairs
++  :: TopLevelFlag
++  -> RecFlag
++  -> [(BinderInfo, StgRhsSkel)]
++  -> (Maybe [(Id, OutStgRhs)] -> LiftM a)
++  -> LiftM a
++withLiftedBindPairs top rec pairs k = do
++  let (infos, rhss) = unzip pairs
++  let bndrs = map binderInfoBndr infos
++  expander <- liftedIdsExpander
++  dflags <- getDynFlags
++  case goodToLift dflags top rec expander pairs of
++    -- @abs_ids@ is the set of all variables that need to become parameters.
++    Just abs_ids -> withLiftedBndrs abs_ids bndrs $ \bndrs' -> do
++      -- Within this block, all binders in @bndrs@ will be noted as lifted, so
++      -- that the return value of @liftedIdsExpander@ in this context will also
++      -- expand the bindings in @bndrs@ to their free variables.
++      -- Now we can recurse into the RHSs and see if we can lift any further
++      -- bindings. We pass the set of expanded free variables (thus OutIds) on
++      -- to @liftRhs@ so that it can add them as parameter binders.
++      when (isRec rec) startBindingGroup
++      rhss' <- traverse (liftRhs (Just abs_ids)) rhss
++      let pairs' = zip bndrs' rhss'
++      addLiftedBinding (mkStgBinding rec pairs')
++      when (isRec rec) endBindingGroup
++      k Nothing
++    Nothing -> withSubstBndrs bndrs $ \bndrs' -> do
++      -- Don't lift the current binding, but possibly some bindings in their
++      -- RHSs.
++      rhss' <- traverse (liftRhs Nothing) rhss
++      let pairs' = zip bndrs' rhss'
++      k (Just pairs')
++
++liftRhs
++  :: Maybe (DIdSet)
++  -- ^ @Just former_fvs@ <=> this RHS was lifted and we have to add @former_fvs@
++  -- as lambda binders, discarding all free vars.
++  -> StgRhsSkel
++  -> LiftM OutStgRhs
++liftRhs mb_former_fvs rhs@(StgRhsCon ccs con args)
++  = ASSERT2 ( isNothing mb_former_fvs, text "Should never lift a constructor" $$ ppr rhs)
++    StgRhsCon ccs con <$> traverse liftArgs args
++liftRhs Nothing (StgRhsClosure ccs bi fvs upd infos body) = do
++  -- This RHS wasn't lifted. We have to expand (not just substitute) the fvs
++  -- nonetheless.
++  expander <- liftedIdsExpander
++  let fvs' = dVarSetElems (expander (mkDVarSet fvs))
++  withSubstBndrs (map binderInfoBndr infos) $ \bndrs' -> do
++    body' <- liftExpr body
++    pure (StgRhsClosure ccs bi fvs' upd bndrs' body')
++liftRhs (Just former_fvs) (StgRhsClosure ccs bi _ upd infos body) = do
++  -- This RHS was lifted. Discard @fvs@, insert extra binders for @former_fvs@.
++  withSubstBndrs (map binderInfoBndr infos) $ \bndrs' -> do
++    body' <- liftExpr body
++    pure (StgRhsClosure ccs bi [] upd (dVarSetElems former_fvs ++ bndrs') body')
++
++liftArgs :: InStgArg -> LiftM OutStgArg
++liftArgs a@(StgLitArg _) = pure a
++liftArgs (StgVarArg occ) = do
++  ASSERTM2( not <$> isLifted occ, text "StgArgs should never be lifted" $$ ppr occ )
++  StgVarArg <$> substOcc occ
++
++liftExpr :: StgExprSkel -> LiftM OutStgExpr
++liftExpr (StgLit lit) = pure (StgLit lit)
++liftExpr (StgTick t e) = StgTick t <$> liftExpr e
++liftExpr (StgApp f args) = do
++  f' <- substOcc f
++  args' <- traverse liftArgs args
++  fvs' <- formerFreeVars f
++  let top_lvl_args = map StgVarArg fvs' ++ args'
++  lifted <- isLifted f
++  let sat_call = idArity f' <= length top_lvl_args
++  let a ==> b = not a || b
++  let msg = vcat
++        [ text "Unsaturated call to lifted function"
++        , text "function:" <+> ppr f'
++        , text "former free vars:" <+> ppr fvs'
++        , text "arity:" <+> ppr (idArity f')
++        , text "args:" <+> ppr top_lvl_args
++        ]
++  MASSERT2 ( (lifted ==> sat_call), msg )
++  pure (StgApp f' top_lvl_args)
++liftExpr (StgConApp con args tys) = StgConApp con <$> traverse liftArgs args <*> pure tys
++liftExpr (StgOpApp op args ty) = StgOpApp op <$> traverse liftArgs args <*> pure ty
++liftExpr (StgLam _ _) = pprPanic "stgLiftLams" (text "StgLam")
++liftExpr (StgCase scrut info ty alts) = do
++  scrut' <- liftExpr scrut
++  withSubstBndr (binderInfoBndr info) $ \bndr' -> do
++    alts' <- traverse liftAlt alts
++    pure (StgCase scrut' bndr' ty alts')
++liftExpr (StgLet bind body) = withLiftedBind NotTopLevel bind $ \mb_bind' -> do
++  body' <- liftExpr body
++  case mb_bind' of
++    Nothing -> pure body' -- withLiftedBindPairs decided to lift it and already added floats
++    Just bind' -> pure (StgLet bind' body')
++liftExpr (StgLetNoEscape bind body) = withLiftedBind NotTopLevel bind $ \mb_bind' -> do
++  body' <- liftExpr body
++  case mb_bind' of
++    Nothing -> pprPanic "stgLiftLams" (text "Should never decide to lift LNEs")
++    Just bind' -> pure (StgLetNoEscape bind' body')
++
++liftAlt :: StgAltSkel -> LiftM OutStgAlt
++liftAlt (con, infos, rhs) = withSubstBndrs (map binderInfoBndr infos) $ \bndrs' ->
++  (,,) con bndrs' <$> liftExpr rhs
+diff --git a/compiler/stgSyn/StgLint.hs b/compiler/stgSyn/StgLint.hs
+index 58f14a1b3f..e807024ebe 100644
+--- a/compiler/stgSyn/StgLint.hs
++++ b/compiler/stgSyn/StgLint.hs
+@@ -40,6 +40,8 @@ import StgSyn
+ 
+ import DynFlags
+ import Bag              ( Bag, emptyBag, isEmptyBag, snocBag, bagToList )
++import BasicTypes       ( TopLevelFlag(..), isTopLevel )
++import CostCentre       ( isCurrentCCS )
+ import Id               ( Id, idType, isLocalId, isJoinId )
+ import VarSet
+ import DataCon
+@@ -84,7 +86,7 @@ lintStgTopBindings dflags unarised whodunnit binds
+         addInScopeVars binders $
+             lint_binds binds
+ 
+-    lint_bind (StgTopLifted bind) = lintStgBinds bind
++    lint_bind (StgTopLifted bind) = lintStgBinds TopLevel bind
+     lint_bind (StgTopStringLit v _) = return [v]
+ 
+ lintStgArg :: StgArg -> LintM ()
+@@ -94,26 +96,39 @@ lintStgArg (StgVarArg v) = lintStgVar v
+ lintStgVar :: Id -> LintM ()
+ lintStgVar id = checkInScope id
+ 
+-lintStgBinds :: StgBinding -> LintM [Id] -- Returns the binders
+-lintStgBinds (StgNonRec binder rhs) = do
+-    lint_binds_help (binder,rhs)
++lintStgBinds :: TopLevelFlag -> StgBinding -> LintM [Id] -- Returns the binders
++lintStgBinds top_lvl (StgNonRec binder rhs) = do
++    lint_binds_help top_lvl (binder,rhs)
+     return [binder]
+ 
+-lintStgBinds (StgRec pairs)
++lintStgBinds top_lvl (StgRec pairs)
+   = addInScopeVars binders $ do
+-        mapM_ lint_binds_help pairs
++        mapM_ (lint_binds_help top_lvl) pairs
+         return binders
+   where
+     binders = [b | (b,_) <- pairs]
+ 
+-lint_binds_help :: (Id, StgRhs) -> LintM ()
+-lint_binds_help (binder, rhs)
++lint_binds_help :: TopLevelFlag -> (Id, StgRhs) -> LintM ()
++lint_binds_help top_lvl (binder, rhs)
+   = addLoc (RhsOf binder) $ do
++        when (isTopLevel top_lvl) (checkNoCurrentCCS rhs)
+         lintStgRhs rhs
+         -- Check binder doesn't have unlifted type or it's a join point
+         checkL (isJoinId binder || not (isUnliftedType (idType binder)))
+                (mkUnliftedTyMsg binder rhs)
+ 
++-- | Top-level bindings can't inherit the cost centre stack from their
++-- (static) allocation site.
++checkNoCurrentCCS :: StgRhs -> LintM ()
++checkNoCurrentCCS (StgRhsClosure ccs _ _ _ _ _)
++  | isCurrentCCS ccs
++  = addErrL (text "Top-level StgRhsClosure with CurrentCCS")
++checkNoCurrentCCS (StgRhsCon ccs _ _)
++  | isCurrentCCS ccs
++  = addErrL (text "Top-level StgRhsCon with CurrentCCS")
++checkNoCurrentCCS _
++  = return ()
++
+ lintStgRhs :: StgRhs -> LintM ()
+ 
+ lintStgRhs (StgRhsClosure _ _ _ _ [] expr)
+@@ -155,13 +170,13 @@ lintStgExpr lam@(StgLam _ _) =
+     addErrL (text "Unexpected StgLam" <+> ppr lam)
+ 
+ lintStgExpr (StgLet binds body) = do
+-    binders <- lintStgBinds binds
++    binders <- lintStgBinds NotTopLevel binds
+     addLoc (BodyOfLetRec binders) $
+       addInScopeVars binders $
+         lintStgExpr body
+ 
+ lintStgExpr (StgLetNoEscape binds body) = do
+-    binders <- lintStgBinds binds
++    binders <- lintStgBinds NotTopLevel binds
+     addLoc (BodyOfLetRec binders) $
+       addInScopeVars binders $
+         lintStgExpr body
+diff --git a/compiler/stgSyn/StgSubst.hs b/compiler/stgSyn/StgSubst.hs
+new file mode 100644
+index 0000000000..e3a41d0c86
+--- /dev/null
++++ b/compiler/stgSyn/StgSubst.hs
+@@ -0,0 +1,80 @@
++{-# LANGUAGE CPP #-}
++
++module StgSubst where
++
++#include "HsVersions.h"
++
++import GhcPrelude
++
++import Id
++import VarEnv
++import Control.Monad.Trans.State.Strict
++import Outputable
++import Util
++
++-- | A renaming substitution from 'Id's to 'Id's. Like 'RnEnv2', but only not
++-- maintaining pairs of substitutions. Like @"CoreSubst".'CoreSubst.Subst'@, but
++-- with the domain being 'Id's instead of entire 'CoreExpr'.
++data Subst = Subst InScopeSet IdSubstEnv
++
++type IdSubstEnv = IdEnv Id
++
++-- @emptySubst = 'mkEmptySubst' 'emptyInScopeSet'@
++emptySubst :: Subst
++emptySubst = mkEmptySubst emptyInScopeSet
++
++-- Constructs a new 'Subst' assuming the variables in the given 'InScopeSet' are
++-- in scope.
++mkEmptySubst :: InScopeSet -> Subst
++mkEmptySubst in_scope = Subst in_scope emptyVarEnv
++
++-- | Substitutes an 'Id' for another one according to the 'Subst' given in a way
++-- that avoids shadowing the 'InScopeSet', returning the result and an updated
++-- 'Subst' that should be used by subsequent substitutions.
++substBndr :: Id -> Subst -> (Id, Subst)
++substBndr id (Subst in_scope env)
++  = (new_id, Subst new_in_scope new_env)
++  where
++    new_id = uniqAway in_scope id
++    no_change = new_id == id -- in case nothing shadowed
++    new_in_scope = in_scope `extendInScopeSet` new_id
++    new_env
++      | no_change = delVarEnv env id
++      | otherwise = extendVarEnv env id new_id
++
++-- | @substBndrs = runState . traverse (state . substBndr)@
++substBndrs :: Traversable f => f Id -> Subst -> (f Id, Subst)
++substBndrs = runState . traverse (state . substBndr)
++
++-- | Substitutes an occurrence of an identifier for it's counterpart recorded
++-- in the 'Subst'.
++lookupIdSubst :: HasCallStack => Id -> Subst -> Id
++lookupIdSubst id (Subst in_scope env)
++  | not (isLocalId id) = id
++  | Just id' <- lookupVarEnv env id = id'
++  | Just id' <- lookupInScope in_scope id = id'
++  | otherwise = WARN( True, text "StgSubst.lookupIdSubst" <+> ppr id $$ ppr in_scope)
++                id
++
++-- | Substitutes an occurrence of an identifier for it's counterpart recorded
++-- in the 'Subst'. Does not generate a debug warning if the identifier to
++-- to substitute wasn't in scope.
++noWarnLookupIdSubst :: HasCallStack => Id -> Subst -> Id
++noWarnLookupIdSubst id (Subst in_scope env)
++  | not (isLocalId id) = id
++  | Just id' <- lookupVarEnv env id = id'
++  | Just id' <- lookupInScope in_scope id = id'
++  | otherwise = id
++
++-- | Add the 'Var' to the in-scope set: as a side effect,
++-- and remove any existing substitutions for it
++extendInScope :: Id -> Subst -> Subst
++extendInScope id (Subst in_scope env) = Subst (in_scope `extendInScopeSet` id) env
++
++-- | Add a substitution for an 'Id' to the 'Subst': you must ensure that the
++-- in-scope set is such that TyCORep Note [The substitution invariant]
++-- holds after extending the substitution like this
++extendSubst :: Id -> Id -> Subst -> Subst
++extendSubst id new_id (Subst in_scope env)
++  = ASSERT2( new_id `elemInScopeSet` in_scope, ppr id <+> ppr new_id $$ ppr in_scope )
++    Subst in_scope (extendVarEnv env id new_id)
+diff --git a/compiler/stgSyn/StgSyn.hs b/compiler/stgSyn/StgSyn.hs
+index eb905f7456..8fe531ad84 100644
+--- a/compiler/stgSyn/StgSyn.hs
++++ b/compiler/stgSyn/StgSyn.hs
+@@ -10,6 +10,7 @@ generation.
+ -}
+ 
+ {-# LANGUAGE CPP #-}
++{-# LANGUAGE DeriveFunctor #-}
+ 
+ module StgSyn (
+         GenStgArg(..),
+@@ -50,6 +51,7 @@ import GhcPrelude
+ 
+ import CoreSyn     ( AltCon, Tickish )
+ import CostCentre  ( CostCentreStack )
++import Data.Bifunctor
+ import Data.ByteString ( ByteString )
+ import Data.List   ( intersperse )
+ import DataCon
+@@ -107,6 +109,7 @@ data GenStgBinding bndr occ
+ data GenStgArg occ
+   = StgVarArg  occ
+   | StgLitArg  Literal
++  deriving Functor
+ 
+ -- | Does this constructor application refer to
+ -- anything in a different *Windows* DLL?
+@@ -374,7 +377,7 @@ Finally for @hpc@ expressions we introduce a new STG construct.
+ -}
+ 
+   | StgTick
+-    (Tickish bndr)
++    (Tickish Id)
+     (GenStgExpr bndr occ)       -- sub expression
+ 
+ -- END of GenStgExpr
+@@ -655,6 +658,42 @@ data StgOp
+         -- (which lacks a unique supply), notably when generating a
+         -- typedef for foreign-export-dynamic
+ 
++{-
++************************************************************************
++*                                                                      *
++\subsection[Mapping]{Mapping over binders and occurrences}
++*                                                                      *
++************************************************************************
++-}
++
++instance Bifunctor GenStgTopBinding where
++  bimap f _ (StgTopStringLit bndr lit) = StgTopStringLit (f bndr) lit
++  bimap f g (StgTopLifted binding) = StgTopLifted (bimap f g binding)
++
++instance Bifunctor GenStgBinding where
++  bimap f g (StgNonRec bndr rhs) = StgNonRec (f bndr) (bimap f g rhs)
++  bimap f g (StgRec pairs) = StgRec (map (\(bndr, rhs) -> (f bndr, bimap f g rhs)) pairs)
++
++instance Bifunctor GenStgExpr where
++  bimap f g = go
++    where
++      go (StgApp fun args) = StgApp (g fun) (map (fmap g) args)
++      go (StgLit lit) = StgLit lit
++      go (StgConApp con args tys) = StgConApp con (map (fmap g) args) tys
++      go (StgOpApp op args ty) = StgOpApp op (map (fmap g) args) ty
++      go (StgLam bndrs body) = StgLam (fmap f bndrs) body
++      go (StgCase scrut bndr ty alts) = StgCase (go scrut) (f bndr) ty (map alt alts)
++        where
++          alt (con, bndrs, rhs) = (con, map f bndrs, go rhs)
++      go (StgLet bind body) = StgLet (bimap f g bind) (go body)
++      go (StgLetNoEscape bind body) = StgLetNoEscape (bimap f g bind) (go body)
++      go (StgTick t e) = StgTick t (go e)
++
++instance Bifunctor GenStgRhs where
++  bimap _ g (StgRhsCon ccs con args) = StgRhsCon ccs con (map (fmap g) args)
++  bimap f g (StgRhsClosure ccs sbi fvs upd bndrs body)
++    = StgRhsClosure ccs sbi (map g fvs) upd (map f bndrs) (bimap f g body)
++
+ {-
+ ************************************************************************
+ *                                                                      *
+diff --git a/docs/users_guide/using-optimisation.rst b/docs/users_guide/using-optimisation.rst
+index da066e158c..707e250777 100644
+--- a/docs/users_guide/using-optimisation.rst
++++ b/docs/users_guide/using-optimisation.rst
+@@ -952,6 +952,58 @@ by saying ``-fno-wombat``.
+     Chapter 7 of `Andre Santos's PhD
+     thesis <http://research.microsoft.com/en-us/um/people/simonpj/papers/santos-thesis.ps.gz>`__
+ 
++.. ghc-flag:: -fstg-lift-lams
++    :shortdesc: Enable late lambda lifting on the STG intermediate
++        language. Implied by :ghc-flag:`-O`.
++    :type: dynamic
++    :reverse: -fno-stg-lift-lams
++    :category:
++
++    :default: on
++
++    Enables the late lambda lifting optimisation on the STG
++    intermediate language. This selectively lifts local functions to
++    top-level by converting free variables into function parameters.
++
++.. ghc-flag:: -fstg-lift-lams-known
++    :shortdesc: Allow turning known into unknown calls while performing
++        late lambda lifting.
++    :type: dynamic
++    :reverse: -fno-stg-lift-lams-known
++    :category:
++
++    :default: off
++
++    Allow turning known into unknown calls while performing
++    late lambda lifting. This is deemed non-beneficial, so it's
++    off by default.
++
++.. ghc-flag:: -fstg-lift-lams-non-rec-args
++    :shortdesc: Create top-level non-recursive functions with at most <n>
++        parameters while performing late lambda lifting.
++    :type: dynamic
++    :reverse: -fno-stg-lift-lams-non-rec-args-any
++    :category:
++
++    :default: 5
++
++    Create top-level non-recursive functions with at most <n> parameters
++    while performing late lambda lifting. The default is 5, the number of
++    available parameter registers on x86_64.
++
++.. ghc-flag:: -fstg-lift-lams-rec-args
++    :shortdesc: Create top-level recursive functions with at most <n>
++        parameters while performing late lambda lifting.
++    :type: dynamic
++    :reverse: -fno-stg-lift-lams-rec-args-any
++    :category:
++
++    :default: 5
++
++    Create top-level recursive functions with at most <n> parameters
++    while performing late lambda lifting. The default is 5, the number of
++    available parameter registers on x86_64.
++
+ .. ghc-flag:: -fstrictness
+     :shortdesc: Turn on strictness analysis.
+         Implied by :ghc-flag:`-O`. Implies :ghc-flag:`-fworker-wrapper`
+diff --git a/testsuite/tests/perf/join_points/all.T b/testsuite/tests/perf/join_points/all.T
+index fe202b6487..4a81a4094f 100644
+--- a/testsuite/tests/perf/join_points/all.T
++++ b/testsuite/tests/perf/join_points/all.T
+@@ -19,7 +19,7 @@ test('join004',
+    # 2017-01-24   48146720    Join point rework
+    # 2017-02-05   16130592    Do Worker/Wrapper for NOINLINE things
+   compile_and_run,
+-  [''])
++  ['-fno-stg-lift-lams'])
+ 
+ test('join005', normal, compile, [''])
+ test('join006', normal, compile, [''])
