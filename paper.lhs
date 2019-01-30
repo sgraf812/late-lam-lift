@@ -270,7 +270,7 @@ granular (and thus more easily understood) steps.
 \begin{alignat*}{6}
 \text{Variables} &\quad& f,x,y &\in \var &&&&&\quad& \\
 \text{Expressions} && e &\in \expr && {}\Coloneqq{} && x && \text{Variable} \\
-            &&&&   & \mathwithin{{}\Coloneqq{}}{\mid} && f\; x_1\ldots\,x_n && \text{Saturated function call} \\
+            &&&&   & \mathwithin{{}\Coloneqq{}}{\mid} && f\; x_1\ldots\,x_n && \text{Function call} \\
             &&&&   & \mathwithin{{}\Coloneqq{}}{\mid} && \mkLetb{b}{e} && \text{Recursive \keyword{let}} \\
 \text{Bindings} && b &\in \bindgr && {}\Coloneqq{} && \overline{f_i \mathrel{=} [\mskip1.5mu x_{i,1} \ldots\, x_{i,n_i}\mskip1.5mu] \mskip1.5mu r_i} && \\
 \text{Right-hand sides} && r &\in \rhs && {}\Coloneqq{} && \lambda \mskip1.5mu y_1 \ldots\,y_m\to e && \\
