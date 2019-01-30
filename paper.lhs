@@ -230,7 +230,7 @@ in the compilation pipeline is a natural one, given that accurate allocation
 estimates are impossible on GHC's more high-level Core language. We evaluate
 our pass against the \texttt{nofib} benchmark suite (\cref{sec:eval}) and find
 that our static analysis works as advertised.
-\item Our approach builds and is similar to many previous works, which we
+\item Our approach builds on and is similar to many previous works, which we
 compare to in \cref{sec:relfut}.
 \end{itemize}
 
