@@ -145,9 +145,9 @@ essential when programming in functional languages. Compilers had to generate
 code for such functions since the dawn of Lisp. 
 
 A compiler compiling down to G-machine code \parencite{fun-impl} would generate
-code by converting all free variables into parameters. The resulting functions
-are insensitive to lexical scope and can be floated to top-level. This process
-is called \emph{lambda lifting} \parencite{lam-lift}.
+code by converting all free variables into parameters in a process called
+\emph{lambda lifting} \parencite{lam-lift}. The resulting functions are
+insensitive to lexical scope and can be floated to top-level.
 
 An alternative to lambda lifting is \emph{closure conversion}, where references
 to free variables are lowered as field accesses on a record containing all free
@@ -155,62 +155,81 @@ variables of the function, the \emph{closure environment}, passed as an
 implicit parameter to the function. All functions are then regarded as
 \emph{closures}: A pair of a code pointer and an environment.
 
-Recent abstract machines for functional programming languages such as the
+Current abstract machines for functional programming languages such as the
 spineless tagless G-machine \parencite{stg} choose to do closure conversion
 instead of lambda lifting for code generation. Although lambda lifting seems to
 have fallen out of fashion, we argue that it bears potential as an optimisation
-pass prior to closure conversion. Take this code in a Haskell-like language
-with explicit free variables as an example:
+pass prior to closure conversion. Take this Haskell code as an example:
 
 \begin{code}
-let f = [x y] \a b -> x*y+a*b
-    g = [f x] \d -> f d d + x
-in g 5
+f def 0 = def
+f def n = f (g (n `mod` 2)) (n-1)
+  where
+    g 0 = def
+    g n = 1 + g (n-1)
 \end{code}
 
-Closure conversion of |f| and |g| would allocate an environment with two
-entries for both. Now imagine we lambda lift |f| before that happens:
+Closure conversion of |g| would allocate an environment with an entry for |def|.
+Now imagine we lambda lift |g| before that happens:
 
 \begin{code}
-f_up x y a b = x*y+a*b;
-let f = [x y] \ -> f_up x y
-    g = [f x] \d -> f d d + x
-in g 5
+g_up def 0 = def
+g_up def n = 1 + g_up def (n-1)
+
+f def 0 = def
+f def n = f (g (n `mod` 2)) (n-1)
+  where
+    g = g_up def
 \end{code}
 
 Note that closure conversion would still allocate the same environments. Lambda
-lifting just separated closure allocation from the code pointer of |f_up|.
-Suppose now that the partial application |f| gets inlined:
+lifting just separated closure allocation from the code pointer of |g_up|.
+Suppose now that the partial application |g| gets inlined:
 
 \begin{code}
-f_up x y a b = x*y+a*b;
-let g = [x y] \d -> f_up x y d d + x
-in g 5
+g_up def 0 = def
+g_up def n = 1 + g_up def (n-1)
+
+f def 0 = def
+f def n = f (g_up def (n `mod` 2)) (n-1)
 \end{code}
 
-The closure for |f| and the associated allocations completely vanished in favor
-of a few more arguments at its call site! The result looks much simpler.
+The closure for |g| and the associated allocations completely vanished in
+favour of a few more arguments at its call site! The result looks much simpler.
+And indeed, in concert with the other optimisations within the Glasgow Haskell
+Compiler (GHC), the above transformation makes |f| non-allocating, resulting in
+a speedup of 50\%.
 
-But wait. Assume for the sake of the argument that we subtly change the body of
-|f|:
+So should we just perform this transformation on any candidate? We are inclined
+to disagree. Consder what would happen to the following program:
 
 \begin{code}
-let f = [x y] \a b -> y (x+a*b)
-    g = [f x] \d -> f d d + x
-in g 5
+f a b 0 = a
+f a b 1 = b
+f a b n = f (g n) a (n `mod` 2)
+  where
+    g 0 = a
+    g 1 = b
+    g n = n : g (n-1)
 \end{code}
 
-Now |f| closes over a function |y|, occuring in an (assumed) early bound call
-in |f|'s body. After the proposed transformation we would get this:
+Because of laziness, this will allocate a thunk for the recursive call to |g|
+in the tail of the cons cell. Lambda lifting yields:
 
 \begin{code}
-f_up x y a b = y (x+a*b);
-let g = [x y] \d -> f_up x y d d + x
-in g 5
+g_up a b 0 = a
+g_up a b 1 = b
+g_up a b n = n : g_up a b (n-1)
+
+f a b 0 = a
+f a b 1 = b
+f a b n = f (g_up a b n) a (n `mod` 2)
 \end{code}
 
-But now the call to the formal parameter |y| in |f_up| is late bound, incurring
-a substantial slowdown.
+The closure for |g| has vanished, but the thunk in |g_up|s body now closes over
+two additional variables. Worse, for a single allocation of |g|s closure
+environment, we get |n| allocations on the recursive code path! Apart from
+making |f| allocate 10\% more, this also occurs a slowdown of more than 10\%.
 
 Unsurprisingly, there are a number of subtleties to keep in mind. This work is
 concerned with finding out when doing this transformation is beneficial to
@@ -225,7 +244,7 @@ concrete operational deficiencies in \cref{sec:analysis}. We provide a static
 analysis estimating \emph{closure growth}, conservatively approximating the
 effects of a lifting decision on the total allocations of the program.
 \item We implemented our lambda lifting pass in the Glasgow Haskell Compiler
-(GHC) as part of its STG pipeline. The decision to do lambda lifting this late
+as part of its STG pipeline. The decision to do lambda lifting this late
 in the compilation pipeline is a natural one, given that accurate allocation
 estimates are impossible on GHC's more high-level Core language. We evaluate
 our pass against the \texttt{nofib} benchmark suite (\cref{sec:eval}) and find
