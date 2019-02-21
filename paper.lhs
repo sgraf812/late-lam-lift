@@ -820,7 +820,7 @@ This also helps to split the complex |let| case into more manageable chunks.
 In order to assess effectiveness of our new optimisation, we measured
 performance on the \texttt{nofib} benchmark suite \parencite{nofib} against a
 GHC 8.6.1
-release\footnote{\url{https://github.com/ghc/ghc/tree/0d2cdec78471728a0f2c487581d36acda68bb941}}.
+release\footnote{\url{https://github.com/ghc/ghc/tree/0d2cdec78471728a0f2c487581d36acda68bb941}}\footnote{Measurements were conducted on an Intel Core i7-6700 machine running Ubuntu 16.04.}.
 
 We will first look at how our chosen parameterisation (\eg the optimisation
 with all heuristics activated as advertised) performs in comparison to the
@@ -840,7 +840,7 @@ transformation turns heap allocation into possible register and stack
 allocation, which is not reflected in any numbers.
 
 It's more informative to look at runtime measurements, where a total reduction
-of 0.6\% was achieved. Although exploiting the correlation with closure growth
+of 0.7\% was achieved. Although exploiting the correlation with closure growth
 payed off, it seems that the biggest wins in allocations don't necessarily lead
 to big wins in runtime: Allocations of \texttt{n-body} were reduced by 20.2\%
 while runtime was barely affected. Conversely, allocations of \texttt{lambda}
