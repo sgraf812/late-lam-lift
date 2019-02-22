@@ -165,24 +165,24 @@ have fallen out of fashion, we argue that it bears potential as an optimisation
 pass prior to closure conversion. Take this Haskell code as an example:
 
 \begin{code}
-f def 0 = def
-f def n = f (g (n `mod` 2)) (n-1)
+f a 0 = a
+f a n = f (g (n `mod` 2)) (n-1)
   where
-    g 0 = def
+    g 0 = a
     g n = 1 + g (n-1)
 \end{code}
 
-Closure conversion of |g| would allocate an environment with an entry for |def|.
+Closure conversion of |g| would allocate an environment with an entry for |a|.
 Now imagine we lambda lift |g| before that happens:
 
 \begin{code}
-g_up def 0 = def
-g_up def n = 1 + g_up def (n-1)
+g_up a 0 = a
+g_up a n = 1 + g_up a (n-1)
 
-f def 0 = def
-f def n = f (g (n `mod` 2)) (n-1)
+f a 0 = a
+f a n = f (g (n `mod` 2)) (n-1)
   where
-    g = g_up def
+    g = g_up a
 \end{code}
 
 Note that closure conversion would still allocate the same environments. Lambda
@@ -190,11 +190,11 @@ lifting just separated closure allocation from the code pointer of |g_up|.
 Suppose now that the partial application |g| gets inlined:
 
 \begin{code}
-g_up def 0 = def
-g_up def n = 1 + g_up def (n-1)
+g_up a 0 = a
+g_up a n = 1 + g_up a (n-1)
 
-f def 0 = def
-f def n = f (g_up def (n `mod` 2)) (n-1)
+f a 0 = a
+f a n = f (g_up a (n `mod` 2)) (n-1)
 \end{code}
 
 The closure for |g| and the associated allocations completely vanished in
