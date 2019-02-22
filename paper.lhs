@@ -653,34 +653,30 @@ n * [\sigma, \tau]  =
 \label{fig:cg}
 \end{figure}
 
+The definition for \cg is depicted in \cref{fig:cg}. The cases for variables
+and applications are trivial, because they don't allocate. As usual, the
+complexity hides in |let| bindings and its syntactic components. We'll break
+them down one layer at a time by delegating to one helper function per
+syntactic sort. This makes the |let| rule itself nicely compositional, because
+it delegates most of its logic to $\cgb$.
 
-The cases for variables and applications are trivial, because they don't allocate:
+\cgb is concerned measuring binding groups. The \growth component accounts for
+allocating each closure of the binding group. Whenever a closure mentions one
+of the variables to be removed (\ie $\removed$, the bindings to be lifted), we
+count the number of variables that are removed in $\nu$ and subtract them from
+the number of variables in $\added$ (\ie the required set of the binding group
+to lift) that didn't occur in the closure before.
 
-Once again, the complexity hides in |let| bindings and its syntactic components.
-We'll break them down one layer at a time. This makes the |let| rule itself
-nicely compositional, because it delegates most of its logic to $\cgb$:
-
-Next, we look at how binding groups are measured:
-The \growth component accounts for allocating each closure of the binding
-group. Whenever a closure mentions one of the variables to be removed (\ie
-$\removed$, the bindings to be lifted), we count the number of variables that
-are removed in $\nu$ and subtract them from the number of variables in $\added$
-(\ie the required set of the binding group to lift) that didn't occur in the
-closure before.
-
-The call to $\cgr$ accounts for closure growth of right-hand sides:
-
-The right-hand sides of a |let| binding might or might not be entered, so we
-cannot rely on a beneficial negative closure growth to occur in all cases.
-Likewise, without any further analysis information, we can't say if a
-right-hand side is entered multiple times. Hence, the uninformed conservative
-approximation would be to return $\infty$ whenever there is positive closure
-growth in a RHS and 0 otherwise.
+The call to $\cgr$ accounts for closure growth of right-hand sides. The
+right-hand sides of a |let| binding might or might not be entered, so we cannot
+rely on a beneficial negative closure growth to occur in all cases. Likewise,
+without any further analysis information, we can't say if a right-hand side is
+entered multiple times. Hence, the uninformed conservative approximation would
+be to return $\infty$ whenever there is positive closure growth in a RHS and 0
+otherwise.
 
 That would be disastrous for analysis precision! Fortunately, GHC has access to
-cardinality information from its demand analyser \parencite{dmd}\todo{What to
-cite? Progress on the new demand analysis paper seemed to have stalled. The
-cardinality paper? The old demand analysis paper from 2006? Both?}. Demand
+cardinality information from its demand analyser \parencite{dmd}. Demand
 analysis estimates lower and upper bounds ($\sigma$ and $\tau$ above) on how
 many times a RHS is entered relative to its defining expression.
 
