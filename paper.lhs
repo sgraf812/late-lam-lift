@@ -226,8 +226,8 @@ f a b 1 = b
 f a b n = f (g_up a b n) a (n `mod` 2)
 \end{code}
 
-The closure for |g| has vanished, but the thunk in |g_up|s body now closes over
-two additional variables. Worse, for a single allocation of |g|s closure
+The closure for |g| has vanished, but the thunk in |g_up|'s body now closes
+over two additional variables. Worse, for a single allocation of |g|'s closure
 environment, we get |n| allocations on the recursive code path! Apart from
 making |f| allocate 10\% more, this also occurs a slowdown of more than 10\%.
 
