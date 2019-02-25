@@ -102,7 +102,8 @@
 \newcommand{\liftv}{\fun{lift-var}}
 \newcommand{\liftb}{\fun{lift-bind}}
 \newcommand{\abs}{\fun{abstract}}
-\newcommand{\expand}{\fun{expand-envs}}
+\newcommand{\addrqs}{\fun{add-rqs}}
+\newcommand{\expand}{\fun{expand}}
 \newcommand{\decide}{\fun{decide-lift}}
 \newcommand{\recurse}{\fun{recurse}}
 \newcommand{\note}{\fun{note}}
@@ -195,7 +196,7 @@ suggest reliable speedups.
 
 %% Keywords
 %% comma separated list
-\keywords{Haskell,Lambda Lifting,Spineless Tagless G-machine,Compiler Optimization}  %% \keywords are mandatory in final camera-ready submission
+\keywords{Haskell, Lambda Lifting, Spineless Tagless G-machine, Compiler Optimization}  %% \keywords are mandatory in final camera-ready submission
 
 
 %% \maketitle
@@ -804,6 +805,52 @@ lifted. The lifted bindings are emitted as a side-effect by calling the
 primitive $\note$ operation, which merges the given binding group into the
 top-level recursive binding group representing the program.
 
+\begin{figure}[t]
+
+\begin{mdframed}
+\begin{gather*}
+\boxed{\lift_{\mathunderscore}(\mathunderscore) \colon \expander \to \expr \to \expr} \\
+\lift_\absids(x) =
+  \begin{cases}
+    x,              & x \notin \dom{\absids} \\
+    x\; \absids(x), & \text{otherwise}
+  \end{cases}
+\qquad\quad
+\lift_\absids(f\; \overline{x}) = \lift_\absids(f)\; \overline{x} \\
+\lift_\absids(\mkLetb{bs}{e}) =
+  \begin{cases}
+    \lift_{\absids'}(e), & \text{$bs$ is to be lifted as $\liftb_{\absids'}(bs)$} \\
+    \mkLetb{\liftb_{\absids}(bs)}{\lift_{\absids}(e)} & \text{otherwise} \\
+  \end{cases} \\
+where\hspace{20em}\\
+\absids' = \addrqs(bs, \absids)\hspace{10em} \\
+\boxed{\addrqs(\mathunderscore, \mathunderscore) \colon \bindgr \to \expander \to \expander} \\
+\addrqs(\mkBindr{f}{\mathunderscore}{r}, \absids) = \absids\left[\overline{f \mapsto \rqs}\right] \\
+where\hspace{8em}\\
+\hspace{5em} \rqs = \bigcup_i \expand_\absids(\fvs(r_i)) \setminus \{\overline{f}\} \\
+\boxed{\expand_{\mathunderscore}(\mathunderscore) \colon \expander \to \expr \to \expr} \\
+\expand_\absids(V) = \bigcup_{x \in V}
+  \begin{cases}
+    \{x\},      & x \notin \dom{\absids} \\
+    \absids(x), & \text{otherwise}
+  \end{cases} \\
+\boxed{\liftb_{\mathunderscore}(\mathunderscore) \colon \expander \to \bindgr \to \bindgr} \\
+\liftb_\absids(\mkBindr{f}{x_{i,1} \ldots x_{i,n_i}}{\mkRhs{\overline{y}}{e}}) =
+  \begin{cases}
+	\mkBindr{f}{}{\mkRhs{\overline{y}}{\lift_\absids(e)}} & f_1 \notin \dom \absids \\
+	\mkBindr{f}{}{\mkRhs{\absids(f)\,\overline{y}}{\lift_\absids(e)}} & \text{otherwise} \\
+  \end{cases} \\
+\end{gather*}
+\end{mdframed}
+
+\todo[inline]{abstract bs}
+
+\caption{Lambda lifting}
+
+\label{fig:alg}
+\end{figure}
+
+
 \subsection{Variables}
 
 Let's begin with the variable case.
@@ -1258,7 +1305,6 @@ for more realistic and less conservative estimates.
   of the author and do not necessarily reflect the views of the
   National Science Foundation.
 \end{acks}
-
 
 \todo{acknowledgements}
 
