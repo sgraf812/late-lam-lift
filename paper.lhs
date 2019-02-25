@@ -587,11 +587,12 @@ resulting from vanilla lambda lifting, to be precise.}:
 \[
 \cg^{\absids'(\idf_1)}_{\{\overline{\idf}\}}(\mkLetr{\idf}{}{\absids'(\idf_1)\,\overline{\idx}}{\ide}{\ide'}) - \sum_i 1 + \card{\fvs(\idf_i)\setminus \{\overline{\idf}\}} \]
 
-The \emph{required set} $\absids'(\idf_1)$ of the binding group contains the
-additional parameters of the binding group after lambda lifting. The details of
-how to obtain it shall concern us in \cref{sec:trans}. These variables would
-need to be available anywhere a binder from the binding group occurs, which
-justifies the choice of $\{\overline{\idf}\}$ as the subscript argument to \cg.
+The \emph{required set} of extraneous parameters \parencite{optimal-lift}
+$\absids'(\idf_1)$ for the binding group contains the additional parameters of
+the binding group after lambda lifting. The details of how to obtain it shall
+concern us in \cref{sec:trans}. These variables would need to be available
+anywhere a binder from the binding group occurs, which justifies the choice of
+$\{\overline{\idf}\}$ as the subscript argument to \cg.
 
 Note that we logically lambda lifted the binding group in question without
 actually floating out the binding. The reasons for that are twofold: Firstly,
@@ -691,11 +692,15 @@ having to fall back to returning 0.
 One final remark regarding analysis performance: \cg operates directly on STG expressions.
 This means the cost function has to traverse whole syntax trees \emph{for every lifting decision}.
 
-We remedy this by first abstracting the syntax tree into a \emph{skeleton}, retaining only the information necessary for our analysis.
-In particular, this includes allocated closures and their free variables, but also occurrences of multi-shot lambda abstractions.
-Additionally, there are the usual \enquote{glue operators}, such as sequence (\eg the case scrutinee is evaluated whenever one of the case alternatives is), choice (\eg one of the case alternatives is evaluated \emph{mutually exclusively}) and an identity (\ie literals don't allocate).
-This also helps to split the complex |let| case into more manageable chunks.
-
+We remedy this by first abstracting the syntax tree into a \emph{skeleton},
+retaining only the information necessary for our analysis. In particular, this
+includes allocated closures and their free variables, but also occurrences of
+multi-shot lambda abstractions. Additionally, there are the usual \enquote{glue
+operators}, such as sequence (\eg the case scrutinee is evaluated whenever one
+of the case alternatives is), choice (\eg one of the case alternatives is
+evaluated \emph{mutually exclusively}) and an identity (\ie literals don't
+allocate). This also helps to split the complex |let| case into more manageable
+chunks.
 
 \section{Transformation}
 
@@ -708,58 +713,35 @@ integrates the decision logic for which bindings are going to be lambda lifted.
 Central to the transformation is the construction of the minimal \emph{required
 set} of extraneous parameters \parencite{optimal-lift} of a binding.
 
-\subsection{Algorithm}
+\subsection{Signature}
 
-With the notation settled, we can present our variant of the lambda lifting
-transformation. As suggested in the introduction, this interleaves pure lambda
-lifting with an inlining pass that immediately inlines the resulting partial
-applications.
+As suggested in the introduction, we interleave pure lambda lifting with an
+inlining pass that immediately inlines the resulting partial applications.
 
 It is assumed that all variables have unique names and that there is a
 sufficient supply of fresh names from which to draw. We'll define a
 side-effecting function, \lift, recursively over the term structure. This is
 its signature:
-
-\todo[inline]{Take inspiration in "Implementing functional languages: a tutorial" and collect super-combinators afterwards for better separation of concerns. Is that possible? I think not, the hardest part probably is the subsequent inlining pass and the associated substitution. Separating out the decision logic won't really help much. On the other hand, we already lean on a hypothetical inlining pass in some places, so we could just delegate some more inlining work to it. I still don't think this would meaningfully simplify things.}
-
 \[
-\lift_{\mathunderscore}(\mathunderscore) \colon \expander \to \expr \to \writer{\bindgr}{\expr}
+\lift_{\mathunderscore}(\mathunderscore) \colon \expander \to \expr \to \expr
 \]
 
 As its first argument, \lift takes an \expander, which is a partial function
-from lifted binders to their sets of required variables. These are the
-additional variables we have to pass at call sites after lifting. The expander
-is extended every time we decide to lambda lift a binding. It plays a similar
-role as the $E_f$ set in \textcite{lam-lift}. We write $\dom{\absids}$ for the
-domain of the expander $\absids$ and $\absids[\idx \mapsto S]$ to denote
-extension of the expander function, so that the result maps $\idx$ to $S$ and
-all other identifiers by delegating to $\absids$.
+from lifted binders to their required sets. These are the additional variables
+we have to pass at call sites after lifting. The expander is extended every
+time we decide to lambda lift a binding, it plays a similar role as the $E_f$
+set in \textcite{lam-lift}. We write $\dom{\absids}$ for the domain of the
+expander $\absids$ and $\absids[\idx \mapsto S]$ to denote extension of the
+expander function, so that the result maps $\idx$ to $S$ and all other
+identifiers by delegating to $\absids$.
 
 The second argument is the expression that is to be lambda lifted. A call to
 \lift results in an expression that no longer contains any bindings that were
-lifted. The lifted bindings are emitted as a side-effect of the \emph{writer
-monad}, denoted by $\writer{\bindgr}{\mathunderscore}$.
+lifted. The lifted bindings are emitted as a side-effect by calling the
+primitive $\note$ operation, which merges the given binding group into the
+top-level recursive binding group representing the program.
 
-\subsubsection{Side-effects}
-
-\todo{Properly define the structure? Or is this 'obvious'?}
-The following syntax, inspired by \emph{idiom brackets} \parencite{applicative} and \emph{bang notation}\footnote{\url{http://docs.idris-lang.org/en/v1.3.0/tutorial/interfaces.html}}, will allow concise notation while hiding sprawling state threading:
-
-\[
-  \idiom{E[\eff{e_1}, ..., \eff{e_n}]}
-\]
-
-This denotes a side-effecting computation that, when executed, will perform the
-side-effecting subcomputations $e_i$ in order (any fixed order will do for us).
-After that, it will lift the otherwise pure context $E$ over the results of the
-subcomputations.
-
-In addition, we make use of the monadic bind operators $>\!\!>\!\!=$ and
-$>\!\!>$, defined in the usual way. The primitive operation $\note$ takes as
-argument a binding group and merges its bindings into the contextual binding
-group tracked by the writer monad.
-
-\subsubsection{Variables}
+\subsection{Variables}
 
 Let's begin with the variable case.
 
@@ -780,7 +762,7 @@ application that arises in pure lambda lifting.
 There are no bindings occuring that could be lambda lifted, hence the function
 performs no actual side-effects.
 
-\subsubsection{Applications}
+\subsection{Applications}
 
 \label{sssec:app}
 
@@ -811,7 +793,7 @@ outsourced into a helper function \wrap:
   \end{cases} \\
 \]
 
-\subsubsection{Let Bindings}
+\subsection{Let Bindings}
 
 Hardly surprising, the meat of the transformation hides in the handling of
 |let| bindings. This can be broken down into three separate functions:
