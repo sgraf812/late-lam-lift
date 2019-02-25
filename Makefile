@@ -1,19 +1,21 @@
 BUILD=build
 BASE=paper
+TO_COPY=references.bib ACM-Reference-Format.bst acmart.cls
+COPIED=$(addprefix $(BUILD)/,$(TO_COPY))
 
 default: $(BASE).pdf
 
-$(BUILD)/references.bib: references.bib
+$(COPIED): $(BUILD)/% : %
 	@mkdir -p $(BUILD)
-	@echo "Copying $@..."
-	@cp references.bib $(BUILD)/references.bib
+	@echo "Copying $<..."
+	@cp -pr $< $@
 
 $(BUILD)/$(BASE).tex: $(BASE).lhs custom.fmt
 	@mkdir -p $(BUILD)
 	@echo "Generating $@..."
 	@lhs2TeX --poly $< > $@
 
-$(BUILD)/$(BASE).pdf: $(BUILD)/$(BASE).tex $(BUILD)/references.bib tables/*.tex
+$(BUILD)/$(BASE).pdf: $(BUILD)/$(BASE).tex $(COPIED) tables/*.tex
 	@mkdir -p $(BUILD)
 	@echo "Rebuilding $@..."
 	@(TEXINPUTS=$(TEXINPUTS):style latexmk -f -pdf -jobname=build/$(BASE) -interaction=nonstopmode $< > /dev/null 2>&1) || (echo "Error! running rubber" && rubber -I`pwd` --pdf --into $(BUILD) $<)

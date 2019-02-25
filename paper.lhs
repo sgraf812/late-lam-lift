@@ -1,6 +1,45 @@
-\documentclass[draft]{article}
+%% For double-blind review submission, w/o CCS and ACM Reference (max submission space)
+%\documentclass[acmsmall,review,anonymous,natbib=false]{acmart}\settopmatter{printfolios=true,printccs=false,printacmref=false}
+%% For double-blind review submission, w/ CCS and ACM Reference
+\documentclass[acmsmall,review,anonymous]{acmart}\settopmatter{printfolios=true}
+%% For single-blind review submission, w/o CCS and ACM Reference (max submission space)
+%\documentclass[acmsmall,review]{acmart}\settopmatter{printfolios=true,printccs=false,printacmref=false}
+%% For single-blind review submission, w/ CCS and ACM Reference
+%\documentclass[acmsmall,review]{acmart}\settopmatter{printfolios=true}
+%% For final camera-ready submission, w/ required CCS and ACM Reference
+%\documentclass[acmsmall]{acmart}\settopmatter{}
 
 %include custom.fmt
+
+
+%% Journal information
+%% Supplied to authors by publisher for camera-ready submission;
+%% use defaults for review submission.
+\acmJournal{PACMPL}
+\acmVolume{1}
+\acmNumber{ICFP} % CONF = POPL or ICFP or OOPSLA
+\acmArticle{1}
+\acmYear{2019}
+\acmMonth{1}
+\acmDOI{} % \acmDOI{10.1145/nnnnnnn.nnnnnnn}
+\startPage{1}
+
+%% Copyright information
+%% Supplied to authors (based on authors' rights management selection;
+%% see authors.acm.org) by publisher for camera-ready submission;
+%% use 'none' for review submission.
+\setcopyright{none}
+%\setcopyright{acmcopyright}
+%\setcopyright{acmlicensed}
+%\setcopyright{rightsretained}
+%\copyrightyear{2018}           %% If different from \acmYear
+
+%% Bibliography style
+\bibliographystyle{ACM-Reference-Format}
+%% Citation style
+%% Note: author/year citations are required for papers published as an
+%% issue of PACMPL.
+\citestyle{acmauthoryear}   %% For author/year citations
 
 %\usepackage{mathpazo}
 %\usepackage{utopia}
@@ -10,7 +49,7 @@
 \usepackage{multirow}
 \usepackage{mathpartir}
 \usepackage{mathtools}
-\usepackage[dvipsnames]{xcolor}
+\usepackage{xcolor}
 \usepackage{xspace}
 \usepackage{todonotes}
 \usepackage{enumitem}
@@ -22,10 +61,7 @@
   pdftitle={Lucrative Late Lambda Lifting},
   hidelinks=true,
 }
-\usepackage[backend=bibtex8]{biblatex}
 \usepackage{mdframed}
-
-\bibliography{references.bib}
 
 \newcommand{\cf}{cf.\@@\xspace}
 \newcommand{\eg}{e.g.,\@@\xspace}
@@ -115,20 +151,20 @@
 \title{Lucrative Late Lambda Lifting}
 
 \author{Sebastian Graf}
-% \affiliation{%
-%   \institution{Karlsruhe Institute of Technology}
-%   \streetaddress{Am Fasanengarten 5}
-%   \city{Karlsruhe}
-%   \postcode{76131}
-%   \country{Germany}}
-% \email{sebastian.graf@@kit.edu}
-
-\maketitle
+\affiliation{%
+  \institution{Karlsruhe Institute of Technology}
+  %\department{Institute for Program Structures and Data Organization}
+  %\streetaddress{Am Fasanengarten 5}
+  %\city{Karlsruhe}
+  %\postcode{76131}
+  \country{Germany}
+}
+\email{sebastian.graf@@kit.edu}
 
 \begin{abstract}
-Lambda lifting is a well-known transformation \parencite{lam-lift},
+Lambda lifting is a well-known transformation \citep{lam-lift},
 traditionally employed for compiling functional programs to supercombinators
-\parencite{fun-impl}. However, more recent abstract machines for functional
+\citep{fun-impl}. However, more recent abstract machines for functional
 languages like OCaml and Haskell tend to do closure conversion instead for
 direct access to the environment, so lambda lifting is no longer necessary to
 generate machine code.
@@ -141,15 +177,42 @@ implementation within the Glasgow Haskell Compiler on a large corpus of Haskell
 suggest reliable speedups.
 \end{abstract}
 
+%% 2012 ACM Computing Classification System (CSS) concepts
+%% Generate at 'http://dl.acm.org/ccs/ccs.cfm'.
+\begin{CCSXML}
+<ccs2012>
+<concept>
+<concept_id>10011007.10011006.10011041</concept_id>
+<concept_desc>Software and its engineering~Compilers</concept_desc>
+<concept_significance>500</concept_significance>
+</concept>
+</ccs2012>
+\end{CCSXML}
+
+\ccsdesc[500]{Software and its engineering~Compilers}
+%% End of generated code
+
+
+%% Keywords
+%% comma separated list
+\keywords{Haskell,Lambda Lifting,Spineless Tagless G-machine,Compiler Optimization}  %% \keywords are mandatory in final camera-ready submission
+
+
+%% \maketitle
+%% Note: \maketitle command must come after title commands, author
+%% commands, abstract environment, Computing Classification System
+%% environment and commands, and keywords command.
+\maketitle
+
 \section{Introduction}
 
 The ability to define nested auxiliary functions referencing free variables is
 essential when programming in functional languages. Compilers had to generate
 code for such functions since the dawn of Lisp. 
 
-A compiler compiling down to G-machine code \parencite{fun-impl} would generate
+A compiler compiling down to G-machine code \citep{fun-impl} would generate
 code by converting all free variables into parameters in a process called
-\emph{lambda lifting} \parencite{lam-lift}. The resulting functions are
+\emph{lambda lifting} \citep{lam-lift}. The resulting functions are
 insensitive to lexical scope and can be floated to top-level.
 
 An alternative to lambda lifting is \emph{closure conversion}, where references
@@ -159,7 +222,7 @@ implicit parameter to the function. All functions are then regarded as
 \emph{closures}: A pair of a code pointer and an environment.
 
 Current abstract machines for functional programming languages such as the
-spineless tagless G-machine \parencite{stg} choose to do closure conversion
+spineless tagless G-machine \citep{stg} choose to do closure conversion
 instead of lambda lifting for code generation. Although lambda lifting seems to
 have fallen out of fashion, we argue that it bears potential as an optimisation
 pass prior to closure conversion. Take this Haskell code as an example:
@@ -241,7 +304,7 @@ lifting and closure conversion. These are our contributions:
 
 \begin{itemize}
 \item We describe a selective lambda lifting pass that maintains the invariants
-associated with the STG language \parencite{stg} (\cref{sec:trans}).
+associated with the STG language \citep{stg} (\cref{sec:trans}).
 \item A number of heuristics fueling the lifting decision are derived from
 concrete operational deficiencies in \cref{sec:analysis}. We provide a static
 analysis estimating \emph{closure growth}, conservatively approximating the
@@ -259,7 +322,7 @@ compare to in \cref{sec:relfut}.
 \section{Language}
 
 Although the STG language is tiny compared to typical surface languages such as
-Haskell, its definition \parencite{fastcurry} still contains much detail
+Haskell, its definition \citep{fastcurry} still contains much detail
 irrelevant to lambda lifting. This section will therefore introduce an untyped
 lambda calculus that will serve as the subject of optimisation in the rest
 of the paper.
@@ -267,7 +330,7 @@ of the paper.
 \subsection{Syntax}
 
 As can be seen in \cref{fig:syntax}, we extended untyped lambda calculus with
-|let| bindings, just as in \textcite{lam-lift}. There are a few additional
+|let| bindings, just as in \citet{lam-lift}. There are a few additional
 STG-inspired characteristics:
 
 \begin{itemize}
@@ -298,7 +361,7 @@ assume that variable names are globally unique.
 
 Giving a full operational semantics for the calculus in \cref{fig:syntax} is
 out of scope for this paper, but since it's a subset of the STG language, it
-follows directly from \textcite{fastcurry}.
+follows directly from \citet{fastcurry}.
 
 An informal treatment of operational behavior is still in order to express the
 consequences of lambda lifting. Since every application only has trivial
@@ -443,7 +506,7 @@ in mapF [1..n]
 \end{code}
 
 Here, there is a \emph{known call} to |f| in |mapF| that can be lowered as a
-direct jump to a static address \parencite{fastcurry}. This is similar to an
+direct jump to a static address \citep{fastcurry}. This is similar to an
 early bound call in an object-oriented language. Lifting |mapF| (but not |f|)
 yields the following program:
 
@@ -456,7 +519,7 @@ in mapF_up f [1..n]
 Now, |f| is passed as an argument to |mapF_up| and its address is unknown
 within the body of |mapF_up|. For lack of a global points-to analysis, this
 unknown (\ie late bound) call would need to go through a generic apply function
-\parencite{fastcurry}, incurring a major slow-down.
+\citep{fastcurry}, incurring a major slow-down.
 
 \begin{introducecrit}
   \item \label{h:known} Don't lift a binding when doing so would turn known calls into unknown calls
@@ -587,7 +650,7 @@ resulting from vanilla lambda lifting, to be precise.}:
 \[
 \cg^{\absids'(\idf_1)}_{\{\overline{\idf}\}}(\mkLetr{\idf}{}{\absids'(\idf_1)\,\overline{\idx}}{\ide}{\ide'}) - \sum_i 1 + \card{\fvs(\idf_i)\setminus \{\overline{\idf}\}} \]
 
-The \emph{required set} of extraneous parameters \parencite{optimal-lift}
+The \emph{required set} of extraneous parameters \citep{optimal-lift}
 $\absids'(\idf_1)$ for the binding group contains the additional parameters of
 the binding group after lambda lifting. The details of how to obtain it shall
 concern us in \cref{sec:trans}. These variables would need to be available
@@ -677,7 +740,7 @@ be to return $\infty$ whenever there is positive closure growth in a RHS and 0
 otherwise.
 
 That would be disastrous for analysis precision! Fortunately, GHC has access to
-cardinality information from its demand analyser \parencite{dmd}. Demand
+cardinality information from its demand analyser \citep{dmd}. Demand
 analysis estimates lower and upper bounds ($\sigma$ and $\tau$ above) on how
 many times a RHS is entered relative to its defining expression.
 
@@ -706,12 +769,12 @@ chunks.
 
 \label{sec:trans}
 
-The extension of Johnsson's formulation \parencite{lam-lift} to STG terms is
+The extension of Johnsson's formulation \citep{lam-lift} to STG terms is
 straight-forward, but it's still worth showing how the transformation
 integrates the decision logic for which bindings are going to be lambda lifted.
 
 Central to the transformation is the construction of the minimal \emph{required
-set} of extraneous parameters \parencite{optimal-lift} of a binding.
+set} of extraneous parameters \citep{optimal-lift} of a binding.
 
 \subsection{Signature}
 
@@ -730,7 +793,7 @@ As its first argument, \lift takes an \expander, which is a partial function
 from lifted binders to their required sets. These are the additional variables
 we have to pass at call sites after lifting. The expander is extended every
 time we decide to lambda lift a binding, it plays a similar role as the $E_f$
-set in \textcite{lam-lift}. We write $\dom{\absids}$ for the domain of the
+set in \citet{lam-lift}. We write $\dom{\absids}$ for the domain of the
 expander $\absids$ and $\absids[\idx \mapsto S]$ to denote extension of the
 expander function, so that the result maps $\idx$ to $S$ and all other
 identifiers by delegating to $\absids$.
@@ -876,7 +939,7 @@ What remains is the trivial, but noisy definition of the \liftb traversal:
 \label{sec:eval}
 
 In order to assess effectiveness of our new optimisation, we measured
-performance on the \texttt{nofib} benchmark suite \parencite{nofib} against a
+performance on the \texttt{nofib} benchmark suite \citep{nofib} against a
 GHC 8.6.1
 release\footnote{\url{https://github.com/ghc/ghc/tree/0d2cdec78471728a0f2c487581d36acda68bb941}}\footnote{Measurements were conducted on an Intel Core i7-6700 machine running Ubuntu 16.04.}.
 
@@ -943,7 +1006,7 @@ opportunities in \texttt{grep} or \texttt{prolog}. Cursory digging reveals that
 in the case of \texttt{grep}, an inner loop of a list comprehension gets
 lambda lifted, where allocation only happens on the cold path for the
 particular input data of the benchmark. Weighing closure growth by an estimate
-of execution frequency \parencite{static-prof} could help here, but GHC
+of execution frequency \citep{static-prof} could help here, but GHC
 does not currently offer such information.
 
 The mean difference in runtime results is surprisingly insignificant. That
@@ -1034,7 +1097,7 @@ convention on AMD64 was a good call.
 
 \subsection{Related Work}
 
-\textcite{lam-lift} was the first to conceive lambda lifting as a code
+\citet{lam-lift} was the first to conceive lambda lifting as a code
 generation scheme for functional languages. As explained in \cref{sec:trans},
 we deviate from the original transformation in that we interleave an inlining
 pass for the residual partial applications and regard this interleaving as an
@@ -1044,14 +1107,14 @@ Johnsson's constructed the required set of free variables for each binding by
 computing the smallest solution of a system of set inequalities. Although this
 runs in $\mathcal{O}(n^3)$ time, there were several attempts to achieve its
 optimality (wrt. the minimal size of the required sets) with better
-asymptotics. As such, \textcite{optimal-lift} were the first to present an
+asymptotics. As such, \citet{optimal-lift} were the first to present an
 algorithm that simultaneously has optimal runtime in $\mathcal{O}(n^2)$ and
 computes minimal required sets. They also give a nice overview over previous
 approaches and highlight their shortcomings.\smallskip
 
 That begs the question whether the somewhat careless transformation in
 \cref{sec:trans} has one or both of the desirable optimality properties of the
-algorithm by \textcite{optimal-lift}. \todo{As a separate theorem in
+algorithm by \citet{optimal-lift}. \todo{As a separate theorem in
 \cref{sec:trans} or the appendix?}
 
 At least for the situation within GHC, we loosely argue that the constructed
@@ -1064,9 +1127,9 @@ of a |let| binding for the binding group $\overline{\idf_i}$.
 Suppose there exists $j$ such that $\idx \in \rqs(\idf_j)$, in which case
 $\idx$ must be part of the minimal set: Note that lexical scoping prevents
 coalescing a recursive group with their dominators in the call graph if they
-define variables that occur in the group. \textcite{optimal-lift} gave a
+define variables that occur in the group. \citet{optimal-lift} gave a
 convincing example that this was indeed what makes the quadratic time approach
-from \textcite{fast-lift} non-optimal with respect to the size of the required
+from \citet{fast-lift} non-optimal with respect to the size of the required
 sets.
 
 When $\idx \notin \rqs(\idf_j)$ for any $j$, $\idx$ must have been the result of
@@ -1077,7 +1140,7 @@ traversal of the syntax tree employed by the transformation, we can assume that
 $\absids(\idg)$ must already have been minimal and therefore that $\idx$ is
 part of the minimal set of $\idf_i$.
 
-Regarding runtime: \textcite{optimal-lift} made sure that they only need to
+Regarding runtime: \citet{optimal-lift} made sure that they only need to
 expand the free variables of at most one dominator that is transitively
 reachable in the call graph. We think it's possible to find this \emph{lowest
 upward vertical dependence} in a separate pass over the syntax tree, but we
@@ -1094,8 +1157,8 @@ of a heap-allocated record. From this perspective, every function in the
 program already is a supercombinator, taking an implicit first parameter. In
 this world, lambda lifting STG terms looks more like an \emph{unpacking} of the
 closure record into multiple arguments, similar to performing Scalar
-Replacement \parencite{scalar-replacement} on the \texttt{this} parameter or
-what the worker-wrapper transformation \parencite{ww} achieves. The situation
+Replacement \citep{scalar-replacement} on the \texttt{this} parameter or
+what the worker-wrapper transformation \citep{ww} achieves. The situation
 is a little different to performing the worker-wrapper split in that there's no
 need for strictness or usage analysis to be involved. Similar to type class
 dictionaries, there's no divergence hiding in closure records. At the same
@@ -1104,7 +1167,7 @@ variables for a particular function and a prior free variable analysis
 guarantees that the closure record will only contain free variables that are
 actually used in the body of the function.
 
-\Textcite{stg} anticipates the effects of lambda-lifting in the context of the
+\citet{stg} anticipates the effects of lambda-lifting in the context of the
 STG machine, which performs closure conversion for code generation. Without the
 subsequent step which inlines the partial application, he comes to the
 conclusion that direct accesses into the environment from the function body
@@ -1112,7 +1175,7 @@ result in less movement of values from heap to stack. Our approach however
 inlines the partial application to get rid of heap accesses altogether.
 
 The idea of regarding lambda lifting as an optimisation is not novel.
-\Textcite{lam-lift-opt} motivates selective lambda lifting in the context of
+\citet{lam-lift-opt} motivates selective lambda lifting in the context of
 compiling Scheme to C. Many of his liftability criteria are specific to
 Scheme and necessitated by the fact that lambda lifting is performed
 \emph{after} closure conversion.
@@ -1128,11 +1191,11 @@ could make for significantly less allocations when a binding can be floated out
 of a hot loop.  This is very similar to performing lambda lifting and then
 cautiously performing block sinking as long as it leads to beneficial
 opportunities to drop parameters, implementing a flexible lambda dropping pass
-\parencite{lam-drop}.
+\citep{lam-drop}.
 
-Lambda dropping \parencite{lam-drop}, or more specifically parameter dropping,
+Lambda dropping \citep{lam-drop}, or more specifically parameter dropping,
 has a close sibling in GHC in the form of the static argument transformation
-\parencite{santos} (SAT). As such, the new lambda lifter is pretty much undoing
+\citep{santos} (SAT). As such, the new lambda lifter is pretty much undoing
 SAT. We argue that SAT is mostly an enabling transformation for the middleend
 and by the time our lambda lifter runs, these opportunities will have been
 exploited.
@@ -1148,7 +1211,7 @@ In general, lambda lifting STG terms and then inlining residual partial
 applications pushes allocations from definition sites into any closures that
 nest around call sites. If only closures on cold code paths grow, doing the
 lift could be beneficial. Weighting closure growth by an estimate of execution
-frequency \parencite{static-prof} could help here. Such static profiles would
+frequency \citep{static-prof} could help here. Such static profiles would
 be convenient in a number of places, for example in the inliner or to determine
 viability of exploiting a costly optimisation opportunity.
 
@@ -1160,7 +1223,7 @@ variables (\ie those defined at the deepest level) could make for significantly
 less allocations when a binding can be floated out of a hot loop.  This is very
 similar to performing lambda lifting and then cautiously performing block
 sinking as long as it leads to beneficial opportunities to drop parameters,
-implementing a flexible lambda dropping pass \parencite{lam-drop}.
+implementing a flexible lambda dropping pass \citep{lam-drop}.
 
 \section{Conclusion}
 
@@ -1179,12 +1242,31 @@ unpredictable regressions in allocations. We believe that in the future,
 closure growth estimation could take static profiling information into account
 for more realistic and less conservative estimates.
 
-\section{Acknowledgments}
+%% Acknowledgments
+\begin{acks}                            %% acks environment is optional
+                                        %% contents suppressed with 'anonymous'
+  %% Commands \grantsponsor{<sponsorID>}{<name>}{<url>} and
+  %% \grantnum[<url>]{<sponsorID>}{<number>} should be used to
+  %% acknowledge financial support and will be used by metadata
+  %% extraction tools.
+  This material is based upon work supported by the
+  \grantsponsor{GS100000001}{National Science
+    Foundation}{http://dx.doi.org/10.13039/100000001} under Grant
+  No.~\grantnum{GS100000001}{nnnnnnn} and Grant
+  No.~\grantnum{GS100000001}{mmmmmmm}.  Any opinions, findings, and
+  conclusions or recommendations expressed in this material are those
+  of the author and do not necessarily reflect the views of the
+  National Science Foundation.
+\end{acks}
+
 
 \todo{acknowledgements}
 
-\listoftodos
+\makeatletter
+  \providecommand\@@dotsep{5}
+\makeatother
+\listoftodos\relax
 
-\printbibliography
+\bibliography{references.bib}
 
 \end{document}
