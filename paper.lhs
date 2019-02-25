@@ -624,6 +624,8 @@ under a multi-shot lambda by $\infty$.
 
 \subsubsection{Design}
 
+\todo[inline]{Go over this once more}
+
 Applied to our simple STG language, we can define a function $\cg$ (short for
 closure growth) with the following signature:
 
@@ -677,11 +679,11 @@ lift.
 
 \begin{mdframed}
 \begin{gather*}
-\boxed{\cg} \quad \expr \\
+\boxed{\cg^{\,\mathunderscore}_{\,\mathunderscore}(\mathunderscore) \colon \mathcal{P}(\var) \to \mathcal{P}(\var) \to \expr \to \zinf} \\
 \cg^{\added}_{\removed}(x) = 0 \qquad \cg^{\added}_{\removed}(f\; \overline{x}) = 0 \\
 \cg^{\added}_{\removed}(\mkLetb{bs}{e}) = \cgb^{\added}_{\removed}(bs) + \cg^{\added}_{\removed}(e)
 \\
-\boxed{\cgb} \quad \bindgr \\
+\boxed{\cgb^{\,\mathunderscore}_{\,\mathunderscore}(\mathunderscore) \colon \mathcal{P}(\var) \to \mathcal{P}(\var) \to \bindgr \to \zinf} \\
 \cgb^{\added}_{\removed}(\mkBindr{f}{}{r}) = \sum_i \growth_i + \cgr^{\added}_{\removed}(r_i) \qquad \nu_i = \card{\fvs(\idf_i) \cap \removed} \\
 \growth_i =
   \begin{cases}
@@ -689,7 +691,7 @@ lift.
     0, & \text{otherwise}
   \end{cases}
 \\
-\boxed{\cgr} \quad \rhs \\
+\boxed{\cgr^{\,\mathunderscore}_{\,\mathunderscore}(\mathunderscore) \colon \mathcal{P}(\var) \to \mathcal{P}(\var) \to \rhs \to \zinf} \\
 \cgr^{\added}_{\removed}(\mkRhs{\overline{x}}{e}) = \cg^{\added}_{\removed}(e) * [\sigma, \tau]
 \qquad
 n * [\sigma, \tau]  =
@@ -842,8 +844,6 @@ where\hspace{8em}\\
   \end{cases} \\
 \end{gather*}
 \end{mdframed}
-
-\todo[inline]{abstract bs}
 
 \caption{Lambda lifting}
 
