@@ -191,10 +191,22 @@ suggest reliable speedups.
 <concept_desc>Software and its engineering~Compilers</concept_desc>
 <concept_significance>500</concept_significance>
 </concept>
+<concept>
+<concept_id>10011007.10011006.10011008.10011009.10011012</concept_id>
+<concept_desc>Software and its engineering~Functional languages</concept_desc>
+<concept_significance>300</concept_significance>
+</concept>
+<concept>
+<concept_id>10011007.10011006.10011008.10011024.10011035</concept_id>
+<concept_desc>Software and its engineering~Procedures, functions and subroutines</concept_desc>
+<concept_significance>300</concept_significance>
+</concept>
 </ccs2012>
 \end{CCSXML}
 
 \ccsdesc[500]{Software and its engineering~Compilers}
+\ccsdesc[300]{Software and its engineering~Functional languages}
+\ccsdesc[300]{Software and its engineering~Procedures, functions and subroutines}
 %% End of generated code
 
 
