@@ -284,7 +284,7 @@ Compiler (GHC), the above transformation makes |f| non-allocating, resulting in
 a speedup of 50\%.
 
 So should we just perform this transformation on any candidate? We are inclined
-to disagree. Consder what would happen to the following program:
+to disagree. Consider what would happen to the following program:
 
 \begin{code}
 f a b 0 = a
@@ -329,9 +329,9 @@ effects of a lifting decision on the total allocations of the program.
 \item We implemented our lambda lifting pass in the Glasgow Haskell Compiler
 as part of its STG pipeline. The decision to do lambda lifting this late
 in the compilation pipeline is a natural one, given that accurate allocation
-estimates are impossible on GHC's more high-level Core language. We evaluate
-our pass against the \texttt{nofib} benchmark suite (\cref{sec:eval}) and find
-that our static analysis works as advertised.
+estimates aren't easily possible on GHC's more high-level Core language. We
+evaluate our pass against the \texttt{nofib} benchmark suite (\cref{sec:eval})
+and find that our static analysis works as advertised.
 \item Our approach builds on and is similar to many previous works, which we
 compare to in \cref{sec:relfut}.
 \end{itemize}
@@ -377,15 +377,15 @@ assume that variable names are globally unique.
 \subsection{Semantics}
 
 Giving a full operational semantics for the calculus in \cref{fig:syntax} is
-out of scope for this paper, but since it's a subset of the STG language, it
-follows directly from \citet{fastcurry}.
+out of scope for this paper, but since it's a subset of the STG language, its
+semantics follows directly from \citet{fastcurry}.
 
 An informal treatment of operational behavior is still in order to express the
 consequences of lambda lifting. Since every application only has trivial
 arguments, all complex expressions had to be bound by a |let| in a prior
 compilation step. Consequently, allocation happens almost entirely at |let|
 bindings closing over free variables of their RHSs, with the exception of
-partial applications as a result of over- or undersaturated calls.
+partial applications resulting from over- or undersaturated calls.
 
 Put plainly: If we manage to get rid of a |let| binding, we get rid of one
 source of heap allocation.
@@ -864,13 +864,17 @@ where\hspace{8em}\\
 \end{figure}
 
 
-\paragraph{Variables} In the variable case, we check if the variable was lifted
+\subsection{Variables}
+
+In the variable case, we check if the variable was lifted
 to top-level by looking it up in the supplied expander mapping $\absids$ and if
 so, we apply it to its newly required extraneous parameters. Notice that this
 has the effect of inlining the partial application that would arise in vanilla
 lambda lifting.
 
-\paragraph{Applications} As discussed in \cref{para:arg} when motivating
+\subsection{Applications}
+
+As discussed in \cref{para:arg} when motivating
 \ref{c1}, handling function application correctly is a little subtle. Consider
 what happens when we try to lambda lift |f| in an application like |g f x|:
 Changing the variable occurrence of |f| to an application would be invalid
@@ -882,7 +886,9 @@ Our transformation enjoys a great deal of simplicity because it crucially
 relies on the adherence to \ref{c1}, so that inlining the partial application
 of |f| will always succeed.
 
-\paragraph{Let Bindings} Hardly surprising, the meat of the transformation
+\subsection{Let Bindings}
+
+Hardly surprising, the meat of the transformation
 hides in the handling of |let| bindings. It is at this point that some
 heuristic (that of \cref{sec:analysis}, for example) decides whether to lambda
 lift the binding group $bs$ wholly or not. For this decision, it has access to
