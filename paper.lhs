@@ -87,11 +87,11 @@
 \newcommand{\idr}{\id{r}}
 \newcommand{\closure}[1]{[\mskip1.5mu #1 \mskip1.5mu]}
 \newcommand{\mkRhs}[2]{\lambda #1 \to #2}
-\newcommand{\mkBind}[3]{#1 \mathrel{=} #3}
-\newcommand{\mkBindr}[3]{\overline{\mkBind{#1}{#2}{#3}}}
+\newcommand{\mkBind}[2]{#1 \mathrel{=} #2}
+\newcommand{\mkBindr}[2]{\overline{\mkBind{#1}{#2}}}
 \newcommand{\mkLetb}[2]{\keyword{let}\; #1\; \keyword{in}\; #2}
-\newcommand{\mkLet}[5]{\mkLetb{\mkBind{#1}{#2}{\mkRhs{#3}{#4}}}{#5}}
-\newcommand{\mkLetr}[5]{\mkLetb{\mkBindr{#1}{#2}{\mkRhs{#3}{#4}}}{#5}}
+\newcommand{\mkLet}[4]{\mkLetb{\mkBind{#1}{\mkRhs{#2}{#3}}}{#4}}
+\newcommand{\mkLetr}[4]{\mkLetb{\mkBindr{#1}{\mkRhs{#2}{#3}}}{#4}}
 \newcommand{\sfop}[1]{\textsf{#1}\xspace}
 \newcommand{\fun}[1]{\textsf{#1}\xspace}
 \newcommand{\ty}[1]{\textsf{#1}\xspace}
@@ -645,13 +645,13 @@ resulting from
 In the lifting algorithm from \cref{sec:trans}, \cg would be consulted as part
 of the lifting decision to estimate the total effect on allocations. Assuming
 we were to decide whether to lift the binding group $\overline{\idf}$ out of an
-expression $\mkLetr{\idf}{}{\overline{\idx}}{\ide}{\ide'}$, the following
+expression $\mkLetr{\idf}{\overline{\idx}}{\ide}{\ide'}$, the following
 expression conservatively estimates the effect on heap allocation of
 performing the lift\footnote{The effect of inlining the partial applications
 resulting from vanilla lambda lifting, to be precise.}:
 
 \[
-\cg^{\absids'(\idf_1)}_{\{\overline{\idf}\}}(\mkLetr{\idf}{}{\absids'(\idf_1)\,\overline{\idx}}{\ide}{\ide'}) - \sum_i 1 + \card{\fvs(\idf_i)\setminus \{\overline{\idf}\}} \]
+\cg^{\absids'(\idf_1)}_{\{\overline{\idf}\}}(\mkLetr{\idf}{\absids'(\idf_1)\,\overline{\idx}}{\ide}{\ide'}) - \sum_i 1 + \card{\fvs(\idf_i)\setminus \{\overline{\idf}\}} \]
 
 The \emph{required set} of extraneous parameters \citep{optimal-lift}
 $\absids'(\idf_1)$ for the binding group contains the additional parameters of
@@ -684,7 +684,7 @@ lift.
 \cg^{\added}_{\removed}(\mkLetb{bs}{e}) = \cgb^{\added}_{\removed}(bs) + \cg^{\added}_{\removed}(e)
 \\
 \boxed{\cgb^{\,\mathunderscore}_{\,\mathunderscore}(\mathunderscore) \colon \mathcal{P}(\var) \to \mathcal{P}(\var) \to \bindgr \to \zinf} \\
-\cgb^{\added}_{\removed}(\mkBindr{f}{}{r}) = \sum_i \growth_i + \cgr^{\added}_{\removed}(r_i) \qquad \nu_i = \card{\fvs(\idf_i) \cap \removed} \\
+\cgb^{\added}_{\removed}(\mkBindr{f}{r}) = \sum_i \growth_i + \cgr^{\added}_{\removed}(r_i) \qquad \nu_i = \card{\fvs(\idf_i) \cap \removed} \\
 \growth_i =
   \begin{cases}
     \card{\added \setminus \fvs(\idf_i)} - \nu_i, & \text{if $\nu_i > 0$} \\
@@ -827,7 +827,7 @@ top-level recursive binding group representing the program.
 where\hspace{20em}\\
 \absids' = \addrqs(bs, \absids)\hspace{10em} \\
 \boxed{\addrqs(\mathunderscore, \mathunderscore) \colon \bindgr \to \expander \to \expander} \\
-\addrqs(\mkBindr{f}{\mathunderscore}{r}, \absids) = \absids\left[\overline{f \mapsto \rqs}\right] \\
+\addrqs(\mkBindr{f}{r}, \absids) = \absids\left[\overline{f \mapsto \rqs}\right] \\
 where\hspace{8em}\\
 \hspace{5em} \rqs = \bigcup_i \expand_\absids(\fvs(r_i)) \setminus \{\overline{f}\} \\
 \boxed{\expand_{\mathunderscore}(\mathunderscore) \colon \expander \to \expr \to \expr} \\
@@ -837,10 +837,10 @@ where\hspace{8em}\\
     \absids(x), & \text{otherwise}
   \end{cases} \\
 \boxed{\liftb_{\mathunderscore}(\mathunderscore) \colon \expander \to \bindgr \to \bindgr} \\
-\liftb_\absids(\mkBindr{f}{x_{i,1} \ldots x_{i,n_i}}{\mkRhs{\overline{y}}{e}}) =
+\liftb_\absids(\mkBindr{f}{\mkRhs{\overline{y}}{e}}) =
   \begin{cases}
-	\mkBindr{f}{}{\mkRhs{\overline{y}}{\lift_\absids(e)}} & f_1 \notin \dom \absids \\
-	\mkBindr{f}{}{\mkRhs{\absids(f)\,\overline{y}}{\lift_\absids(e)}} & \text{otherwise} \\
+	\mkBindr{f}{\mkRhs{\overline{y}}{\lift_\absids(e)}} & f_1 \notin \dom \absids \\
+	\mkBindr{f}{\mkRhs{\absids(f)\,\overline{y}}{\lift_\absids(e)}} & \text{otherwise} \\
   \end{cases} \\
 \end{gather*}
 \end{mdframed}
@@ -882,7 +882,7 @@ binding is lifted to top-level, it turns into a non-atomic application
 expression, violating the STG invariants. Each such application must be bound
 to an enclosing |let| binding \footnote{To keep the specification reasonably
 simple, we also do so for non-lifted identifiers and assume that the compiler
-can do the trivial rewrite $\mkLet{y}{x}{}{x}{E[y]} \Longrightarrow E[x]$ for
+can do the trivial rewrite $\mkLet{y}{}{x}{E[y]} \Longrightarrow E[x]$ for
 us.}:
 
 \[
@@ -898,8 +898,8 @@ outsourced into a helper function \wrap:
 \[
 \wrap_\absids(x)(e) =
   \begin{cases}
-    \mkLet{x'}{x}{}{x}{e}, & x \notin \dom{\absids} \\
-    \mkLet{x'}{}{y_1 \ldots y_n}{x\; y_1 \ldots y_n}{e}, & \absids(x) = \{ y_1, \ldots, y_n \} \\
+    \mkLet{x'}{}{x}{e}, & x \notin \dom{\absids} \\
+    \mkLet{x'}{y_1 \ldots y_n}{x\; y_1 \ldots y_n}{e}, & \absids(x) = \{ y_1, \ldots, y_n \} \\
   \end{cases} \\
 \]
 
@@ -918,7 +918,7 @@ decision, the binding group is \note{}d to be lifted to top-level and syntactic
 subentities of the |let| binding are traversed with the updated expander.
 
 \begin{alignat*}{2}
-\expand_\absids(\mkBindr{f_i}{x_{i,1} \ldots x_{i,n_i}}{r_i}) &&{}={}& \mkBindr{f_i}{y_{i,1} \ldots y_{i,n'_i}}{r_i} \\
+\expand_\absids(\mkBindr{f_i}{r_i}) &&{}={}& \mkBindr{f_i}{r_i} \\
 \text{where}\qquad\qquad &&& \\
 \{y_{i,1}\ldots y_{i,n'_i}\} &&{}={}& \bigcup_{j=1}^{n_i}
   \begin{cases}
@@ -938,7 +938,7 @@ required set.
     (bs, \absids, \emptybind), & \text{otherwise} \\
   \end{cases} \\
 \text{where}\qquad &&& \\
-\absids' &&{}={}& \absids\left[\overline{f_i \mapsto \rqs(bs)}\right] \text{for } \mkBindr{f_i}{\mathunderscore}{\mathunderscore} = bs
+\absids' &&{}={}& \absids\left[\overline{f_i \mapsto \rqs(bs)}\right] \text{for } \mkBindr{f_i}{\mathunderscore} = bs
 \end{alignat*}
 
 \decide returns a triple of a binding group that remains with the local |let|
@@ -948,7 +948,7 @@ not, either the returned local binding group or the $\abs$ed binding group is
 empty. In case the binding is to be lifted, the expander is updated to map the
 newly lifted bindings to their required set.
 \[
-\rqs(\mkBindr{f_i}{x_1 \ldots x_{n_i}}{\mathunderscore}) = \bigcup_i \{x_1, \ldots, x_{n_i} \} \setminus \{\overline{f_i}\}
+\rqs(\mkBindr{f_i}{\mathunderscore}) = \bigcup_i \{x_1, \ldots, x_{n_i} \} \setminus \{\overline{f_i}\}
 \]
 
 The required set consists of the free variables of each binding's RHS,
@@ -957,7 +957,7 @@ that the required set of each binder of the same binding group will be
 identical. See \cref{sec:relfut} for an argument about minimality of the
 resulting required sets.
 \[
-\abs_\absids(\mkBindr{f_i}{x_1 \ldots x_{n_i}}{\mkRhs{y_1 \ldots y_{m_i}}{e_i}}) = \mkBindr{f_i}{}{\mkRhs{\absids(f_i)\; y_1 \ldots y_{m_i}}{e_i}}
+\abs_\absids(\mkBindr{f_i}{\mkRhs{y_1 \ldots y_{m_i}}{e_i}}) = \mkBindr{f_i}{\mkRhs{\absids(f_i)\; y_1 \ldots y_{m_i}}{e_i}}
 \]
 
 The abstraction step is performed in \abs, where closure variables are removed
@@ -980,7 +980,7 @@ What remains is the trivial, but noisy definition of the \liftb traversal:
 \todo{Horizontal overflows. Argh}
 
 \[
-\liftb_\absids(\mkBindr{f_i}{x_{i,1} \ldots x_{i,n_i}}{\mkRhs{y_{i,1} \ldots y_{i,m_i}}{e_i}}) = \idiom{\mkBindr{f_i}{x_{i,1} \ldots x_{i,n_i}}{\mkRhs{y_{i,1} \ldots y_{i,m_i}}{\eff{\lift_\absids(e_i)}}}} \\
+\liftb_\absids(\mkBindr{f_i}{\mkRhs{y_{i,1} \ldots y_{i,m_i}}{e_i}}) = \idiom{\mkBindr{f_i}{\mkRhs{y_{i,1} \ldots y_{i,m_i}}{\eff{\lift_\absids(e_i)}}}} \\
 \]
 \section{Evaluation}
 \label{sec:eval}
