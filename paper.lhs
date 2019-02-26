@@ -46,6 +46,7 @@
 %\usepackage{lmodern}
 \usepackage{amsmath}
 \usepackage{booktabs}
+\usepackage{tikz}
 \usepackage{multirow}
 \usepackage{mathpartir}
 \usepackage{mathtools}
@@ -127,6 +128,9 @@
 \newcommand{\local}{\fun{local}}
 \newcommand{\zinf}{\mathbb{Z}_{\infty}}
 \newcommand{\card}[1]{\left\vert#1\right\vert}
+
+% https://tex.stackexchange.com/a/186520
+\setlength\mathindent{2em}
 
 % https://tex.stackexchange.com/a/268475/52414
 \newlength\stextwidth
@@ -296,7 +300,7 @@ f a b n = f (g_up a b n) a (n `mod` 2)
 The closure for |g| has vanished, but the thunk in |g_up|'s body now closes
 over two additional variables. Worse, for a single allocation of |g|'s closure
 environment, we get |n| allocations on the recursive code path! Apart from
-making |f| allocate 10\% more, this also occurs a slowdown of more than 10\%.
+making |f| allocate 10\% more, this also incurs a slowdown of more than 10\%.
 
 Unsurprisingly, there are a number of subtleties to keep in mind. This work is
 concerned with finding out when doing this transformation is beneficial to
@@ -420,24 +424,25 @@ We now ascribe operational symptoms to combinations of syntactic effects. These
 symptoms justify the derivation of heuristics which will decide when \emph{not}
 to lift.
 
-\paragraph{Argument occurrences.} Consider what happens if |f| occurred in the
-|let| body |e'| as an argument in an application, as in |g 5 x f|.  \ref{s3}
-demands that the argument occurrence of |f| is replaced by an application
-expression.  This, however, would yield a syntactically invalid expression
-because the STG language only allows trivial arguments in an application!
+\paragraph{Argument occurrences.} \label{para:arg} Consider what happens if |f|
+occurred in the |let| body |e'| as an argument in an application, as in |g 5 x
+f|. \ref{s3} demands that the argument occurrence of |f| is replaced by an
+application expression. This, however, would yield a syntactically invalid
+expression because the STG language only allows trivial arguments in an
+application!
 
 Thus, our transformation would have to immediately wrap the application
-with a partial application: |g 5 x f ==> let f' = f_up x y z in g 5 x f'|. But
+in a partial application: |g 5 x f ==> let f' = f_up x y z in g 5 x f'|. But
 this just reintroduces at every call site the very allocation we wanted to
 eliminate through lambda lifting! Therefore, we can identify a first criterion
 for non-beneficial lambda lifts:
 
 \begin{introducecrit}
-  \item Don't lift binders that occur as arguments
+  \item \label{c1} Don't lift binders that occur as arguments
 \end{introducecrit}
 
 A welcome side-effect is that the application case of the transformation in
-\cref{sssec:app} becomes much simpler: The complicated |let| wrapping becomes
+\cref{fig:alg} becomes much simpler: The complicated |let| wrapping becomes
 unnecessary.
 
 \paragraph{Closure growth.} \ref{s1} means we don't allocate a closure on the
@@ -779,18 +784,12 @@ integrates the decision logic for which bindings are going to be lambda lifted.
 Central to the transformation is the construction of the minimal \emph{required
 set} of extraneous parameters \citep{optimal-lift} of a binding.
 
-\subsection{Signature}
-
 As suggested in the introduction, we interleave pure lambda lifting with an
 inlining pass that immediately inlines the resulting partial applications.
 
 It is assumed that all variables have unique names and that there is a
-sufficient supply of fresh names from which to draw. We'll define a
-side-effecting function, \lift, recursively over the term structure. This is
-its signature:
-\[
-\lift_{\mathunderscore}(\mathunderscore) \colon \expander \to \expr \to \expr
-\]
+sufficient supply of fresh names from which to draw. In \cref{fig:alg} we
+define a side-effecting function, \lift, recursively over the term structure.
 
 As its first argument, \lift takes an \expander, which is a partial function
 from lifted binders to their required sets. These are the additional variables
@@ -803,9 +802,11 @@ identifiers by delegating to $\absids$.
 
 The second argument is the expression that is to be lambda lifted. A call to
 \lift results in an expression that no longer contains any bindings that were
-lifted. The lifted bindings are emitted as a side-effect by calling the
-primitive $\note$ operation, which merges the given binding group into the
-top-level recursive binding group representing the program.
+lifted. The lifted bindings are emitted as a side-effect of the |let| case,
+which merges the binding group into the top-level recursive binding group
+representing the program. In a real implementation, this would be handled by
+carrying around a |Writer| effect. We refrained from making this explicit
+in order to keep the definition simple.
 
 \begin{figure}[t]
 
@@ -830,17 +831,17 @@ where\hspace{20em}\\
 \addrqs(\mkBindr{f}{r}, \absids) = \absids\left[\overline{f \mapsto \rqs}\right] \\
 where\hspace{8em}\\
 \hspace{5em} \rqs = \bigcup_i \expand_\absids(\fvs(r_i)) \setminus \{\overline{f}\} \\
-\boxed{\expand_{\mathunderscore}(\mathunderscore) \colon \expander \to \expr \to \expr} \\
+\boxed{\expand_{\mathunderscore}(\mathunderscore) \colon \expander \to \mathcal{P}(\var) \to \mathcal{P}(\var)} \\
 \expand_\absids(V) = \bigcup_{x \in V}
   \begin{cases}
     \{x\},      & x \notin \dom{\absids} \\
     \absids(x), & \text{otherwise}
   \end{cases} \\
 \boxed{\liftb_{\mathunderscore}(\mathunderscore) \colon \expander \to \bindgr \to \bindgr} \\
-\liftb_\absids(\mkBindr{f}{\mkRhs{\overline{y}}{e}}) =
+\liftb_\absids(\mkBindr{f}{\mkRhs{\overline{x}}{e}}) =
   \begin{cases}
-	\mkBindr{f}{\mkRhs{\overline{y}}{\lift_\absids(e)}} & f_1 \notin \dom \absids \\
-	\mkBindr{f}{\mkRhs{\absids(f)\,\overline{y}}{\lift_\absids(e)}} & \text{otherwise} \\
+	\mkBindr{f}{\mkRhs{\overline{x}}{\lift_\absids(e)}} & f_1 \notin \dom \absids \\
+	\mkBindr{f}{\mkRhs{\absids(f)\,\overline{x}}{\lift_\absids(e)}} & \text{otherwise} \\
   \end{cases} \\
 \end{gather*}
 \end{mdframed}
@@ -851,137 +852,153 @@ where\hspace{8em}\\
 \end{figure}
 
 
-\subsection{Variables}
+\paragraph{Variables} In the variable case, we check if the variable was lifted
+to top-level by looking it up in the supplied expander mapping $\absids$ and if
+so, we apply it to its newly required extraneous parameters. Notice that this
+has the effect of inlining the partial application that would arise in vanilla
+lambda lifting.
 
-Let's begin with the variable case.
+\paragraph{Applications} As discussed in \cref{para:arg} when motivating
+\ref{c1}, handling function application correctly is a little subtle. Consider
+what happens when we try to lambda lift |f| in an application like |g f x|:
+Changing the variable occurrence of |f| to an application would be invalid
+because the first argument in the application to |g| would no longer be a
+variable. Inlining the partial application fails, so lambda lifting |f| is
+hardly of any use.
 
-\begin{alignat*}{2}
-&\lift_\absids(x) &{}={}&
-  \begin{cases}
-    \idiom{x},                        & x \notin \dom{\absids} \\
-    \idiom{x\; y_1 \ldots y_n}, & \absids(x) = \{ y_1, \ldots, y_n \}
-  \end{cases} \\
-\end{alignat*}
+Our transformation enjoys a great deal of simplicity because it crucially
+relies on the adherence to \ref{c1}, so that inlining the partial application
+of |f| will always succeed.
 
+\paragraph{Let Bindings} Hardly surprising, the meat of the transformation
+hides in the handling of |let| bindings. It is at this point that some
+heuristic (that of \cref{sec:analysis}, for example) decides whether to lambda
+lift the binding group $bs$ wholly or not. For this decision, it has access to
+the extended expander $\absids'$, but not to the binding group that would
+result from a positive lifting decision $\liftb_{\absids'}(bs)$. This makes
+sure that each syntactic element is only traversed once.
 
-We check if the variable was lifted to top-level by looking it up in the
-supplied expander mapping $\absids$ and if so, we apply it to its newly
-required variables. Notice that this has the effect of inlining the partial
-application that arises in pure lambda lifting.
+How does $\absids'$ extend $\absids$? By calling out to $\addrqs$ in its
+definition, it will also map the current binding group $bs$ to its required
+set. Note that all bindings in the same binding group share their required set.
+The required set is the union of the free variables of all bindings, where
+lifted binders are expanded by looking into $\absids$, minus binders of the
+binding group itself. This is a conservative choice for the required set, but
+we argue for the minimality of this approach in the context of GHC in
+\cref{ssec:opt}.
 
-There are no bindings occuring that could be lambda lifted, hence the function
-performs no actual side-effects.
+With the domain of $\absids'$ containing $bs$, every definition looking into
+that map implicitly assumes that $bs$ is to be lifted. So it makes sense that
+all calls to $\lift$ and $\liftb$ take $\absids'$ when $bs$ should be lifted
+and $\absids$ otherwise.
 
-\subsection{Applications}
+This is useful information when looking at the definition of $\liftb$, which is
+responsible for abstracting the RHS $e$ over its set of extraneous parameters
+when the given binding group should be lifted. Which is exactly the case when
+\emph{any} binding of the binding group, like $f_1$, is in the domain of the
+passed $\absids$. In any case, $\liftb$ recurses via $\lift$ into the
+right-hand sides of the bindings.
 
-\label{sssec:app}
+\subsection{Regarding Optimality}
+\label{ssec:opt}
 
-Handling function application correctly is a little subtle, because only
-variables are allowed in argument position. When such an argument variable's
-binding is lifted to top-level, it turns into a non-atomic application
-expression, violating the STG invariants. Each such application must be bound
-to an enclosing |let| binding \footnote{To keep the specification reasonably
-simple, we also do so for non-lifted identifiers and assume that the compiler
-can do the trivial rewrite $\mkLet{y}{}{x}{E[y]} \Longrightarrow E[x]$ for
-us.}:
+\Citet{lam-lift} constructed the required set of free variables for each binding by
+computing the smallest solution of a system of set inequalities. Although this
+runs in $\mathcal{O}(n^3)$ time, there were several attempts to achieve its
+optimality wrt. the minimal size of the required sets with better
+asymptotics. As such, \citet{optimal-lift} were the first to present an
+algorithm that simultaneously has optimal runtime in $\mathcal{O}(n^2)$ and
+computes minimal required sets.
 
-\[
-\lift_\absids(f\; x_1 \ldots x_n) = \idiom{(\wrap_\absids(x_n) \circ \ldots \circ \wrap_\absids(x_1))(\eff{\lift_\absids(f)}\; x_1' \ldots x_n')} \\ \]
-\todo[inline]{The application rule is unnecessarily complicated because we support occurrences of lifted binders in argument position, in which case we cannot inline the partial application. Lifting such binders isn't worthwhile anyway (see \cref{sec:analysis}). Maybe just say that we don't allow it?}
-\todo[inline]{Subtlety: The application will actually be a nested application. I think that's for fine for the purposes of this paper}
+That begs the question whether the somewhat careless transformation in
+\cref{sec:trans} has one or both of the desirable optimality properties of the
+algorithm by \citet{optimal-lift}.
 
-The notation $x'$ chooses a fresh name for $x$ in a consistent fashion.
-The application head $f$ is handled by an effectful recursive call to \lift.
-Syntactically heavy |let| wrapping of potential partial applications is
-outsourced into a helper function \wrap:
+For the situation within GHC, we loosely argue that the constructed required
+sets are minimal: Because by the time our lambda lifter runs, the occurrence
+analyser will have rearranged recursive groups into strongly connected
+components with respect to the dependency graph, up to lexical scoping. Now
+consider a variable $\idx \in \absids(\idf_i)$ in the required set of a |let|
+binding for the binding group $\overline{\idf_i}$.
 
-\[
-\wrap_\absids(x)(e) =
-  \begin{cases}
-    \mkLet{x'}{}{x}{e}, & x \notin \dom{\absids} \\
-    \mkLet{x'}{y_1 \ldots y_n}{x\; y_1 \ldots y_n}{e}, & \absids(x) = \{ y_1, \ldots, y_n \} \\
-  \end{cases} \\
-\]
+Suppose $\idx \notin \fvs(\idf_j)$ for any $j$. Then $\idx$ must have been the
+result of expanding some function $\idg \in \fvs(\idf_j)$, with $\idx \in
+\absids(\idg)$. Lexical scoping dictates that $\idg$ is defined in an outer
+binding, an ancestor in the syntax tree, that is.  So, by induction over the
+pre-order traversal of the syntax tree employed by the transformation, we can
+assume that $\absids(\idg)$ must already have been minimal and therefore that
+$\idx$ is part of the minimal set of $\idf_i$.
 
-\subsection{Let Bindings}
+Otherwise there exists $j$ such that $\idx \in \fvs(\idf_j)$. When $i = j$,
+$\idf_i$ uses $\idx$ directly, so $\idx$ is part of the minimal set.
 
-Hardly surprising, the meat of the transformation hides in the handling of
-|let| bindings. This can be broken down into three separate functions:
-\[
-\lift_\absids(\mkLetb{bs}{e}) = (\recurse(e) \circ \decide_\absids \circ \expand_\absids)(bs)
-\]
+Hence assume $i \neq j$. Still, $\idf_i$ needs $\idx$ to call the current
+activation of $\idf_j$, directly or indirectly. Otherwise there is a lexically
+enclosing function on every path in the call graph between $\idf_i$ and
+$\idf_j$ that redefines $\idx$ and creates a new activation of the binding
+group. But this kind of call relationship implies that $\idf_i$ and $\idf_j$
+don't need to be part of the same binding group to begin with! Indeed, GHC
+would have split the binding group into separate binding groups. So, $\idx$ is
+part of the minimal set.
 
-The first step is to expand closure environments mentioned in $bs$ with the
-help of $\absids$. Then a heuristic (that of \cref{sec:analysis}, for example)
-decides whether to lambda lift the binding group $bs$ or not. Depending on that
-decision, the binding group is \note{}d to be lifted to top-level and syntactic
-subentities of the |let| binding are traversed with the updated expander.
+A similar situation is depicted in \cref{fig:example}. |h| and |g| are in a
+call relationship similar to $\idf_i$ and $\idf_j$ above. Every path in the
+call graph between |g| and |h| goes through |f|, so |g| and |h| don't actually
+need to be part of the same binding group. The only truly recursive function in
+that program is |f|. All other functions would be nested |let| bindings after
+GHC's occurrence analysis, possibly in lexically separate subtrees. The example
+is of \citet{optimal-lift} and served as a prime example in showing the
+non-optimality of \citet{fast-lift}.
 
-\begin{alignat*}{2}
-\expand_\absids(\mkBindr{f_i}{r_i}) &&{}={}& \mkBindr{f_i}{r_i} \\
-\text{where}\qquad\qquad &&& \\
-\{y_{i,1}\ldots y_{i,n'_i}\} &&{}={}& \bigcup_{j=1}^{n_i}
-  \begin{cases}
-    x_{i,j}, & x_{i,j} \notin \dom{\absids} \\
-    \absids(x_{i,j}), & \text{otherwise}
-  \end{cases}
-\end{alignat*}
+Generally, lexical scoping prevents coalescing a recursive group with their
+dominators in the call graph if the dominators define variables that occur in
+the group. \citet{optimal-lift} gave convincing arguments that this was indeed
+what makes the quadratic time approach from \citet{fast-lift} non-optimal with
+respect to the size of the required sets.
 
-\expand substitutes all occurences of lifted binders (those that are in
-$\dom{\absids}$) in closure environments of a given binding group by their
-required set.
+Regarding runtime: \citet{optimal-lift} made sure that they only need to
+expand the free variables of at most one dominator that is transitively
+reachable in the call graph. We think it's possible to find this \emph{lowest
+upward vertical dependence} in a separate pass over the syntax tree, but we
+found the transformation to be sufficiently fast even in the presence of
+unnecessary variable expansions for a total of $\mathcal{O}(n^2)$ set
+operations, or $\mathcal{O}(n^3)$ time. Ignoring needless expansions, which
+seem to happen rather infrequently in practice, the transformation performs
+$\mathcal{O}(n)$ set operations when merging free variable sets.
 
-\begin{alignat*}{2}
-\decide_\absids(bs) &&{}={}&
-  \begin{cases}
-    (\emptybind,\absids',\abs_{\absids'}(bs)), & \text{if $bs$ should be lifted} \\
-    (bs, \absids, \emptybind), & \text{otherwise} \\
-  \end{cases} \\
-\text{where}\qquad &&& \\
-\absids' &&{}={}& \absids\left[\overline{f_i \mapsto \rqs(bs)}\right] \text{for } \mkBindr{f_i}{\mathunderscore} = bs
-\end{alignat*}
+\begin{figure}[t]
+\centering
+\begin{minipage}{0.3\textwidth}
+\begin{code}
+f x y = ... g ... h ...
+  where
+    g ... = ... x ... i ...
+    h ... = ... y ... f ...
+    i ... = ... f ...
+\end{code}
+\end{minipage}%
+\begin{minipage}{0.5\textwidth}
+\centering
+\begin{tikzpicture}[->,>=stealth,thick,auto]
+\begin{scope}[every node/.style={circle,draw}]
+\node (f) at (2, 2) {$f^{x,y}$};
+\node (g) at (1, 1) {$g_x$};
+\node (h) at (3, 1) {$h_y$};
+\node (i) at (0, 0) {$i$};
+\end{scope}
 
-\decide returns a triple of a binding group that remains with the local |let|
-binding, an updated expander and a binding group prepared to be lifted to
-top-level. Depending on whether the argument $\idbs$ is decided to be lifted or
-not, either the returned local binding group or the $\abs$ed binding group is
-empty. In case the binding is to be lifted, the expander is updated to map the
-newly lifted bindings to their required set.
-\[
-\rqs(\mkBindr{f_i}{\mathunderscore}) = \bigcup_i \{x_1, \ldots, x_{n_i} \} \setminus \{\overline{f_i}\}
-\]
+\path
+  (f) edge node {} (g)
+  (g) edge node {} (i)
+  (i) edge [bend left] node {} (f)
+  (f) edge node {} (h)
+  (h) edge [bend right] node {} (f);
+\end{tikzpicture}
+\end{minipage}
+\caption{Example call graph from \citet{optimal-lift}}
+\label{fig:example}
+\end{figure}
 
-The required set consists of the free variables of each binding's RHS,
-conveniently available in syntax, minus the defined binders themselves. Note
-that the required set of each binder of the same binding group will be
-identical. See \cref{sec:relfut} for an argument about minimality of the
-resulting required sets.
-\[
-\abs_\absids(\mkBindr{f_i}{\mkRhs{y_1 \ldots y_{m_i}}{e_i}}) = \mkBindr{f_i}{\mkRhs{\absids(f_i)\; y_1 \ldots y_{m_i}}{e_i}}
-\]
-
-The abstraction step is performed in \abs, where closure variables are removed
-in favor of additional parameters, one for each element of the respective
-binding's required set.
-\[
-\recurse(e)(bs, \absids, lbs) = \liftb_\absids(lbs) >\!\!>\!\!= \note >\!\!> \idiom{\mkLetb{\eff{\liftb_\absids(bs)}}{\eff{\lift_\absids(e)}}}
-\]
-
-In the final step of the |let| \enquote{pipeline}, the algorithm recurses into
-every subexpression of the |let| binding. The binding group to be lifted is
-transformed first, after which it is added to the contextual top-level binding
-group of the writer monad. Finally, the binding group that remains locally
-bound is traversed, as well as the original |let| body. The result is again
-wrapped up in a |let| and returned\footnote{Similar to the application case, we
-assume that the compiler performs the obvious rewrite $\mkLetb{\emptybind}{e}
-\Longrightarrow e$.}.
-
-What remains is the trivial, but noisy definition of the \liftb traversal:
-\todo{Horizontal overflows. Argh}
-
-\[
-\liftb_\absids(\mkBindr{f_i}{\mkRhs{y_{i,1} \ldots y_{i,m_i}}{e_i}}) = \idiom{\mkBindr{f_i}{\mkRhs{y_{i,1} \ldots y_{i,m_i}}{\eff{\lift_\absids(e_i)}}}} \\
-\]
 \section{Evaluation}
 \label{sec:eval}
 
@@ -1156,45 +1173,9 @@ runs in $\mathcal{O}(n^3)$ time, there were several attempts to achieve its
 optimality (wrt. the minimal size of the required sets) with better
 asymptotics. As such, \citet{optimal-lift} were the first to present an
 algorithm that simultaneously has optimal runtime in $\mathcal{O}(n^2)$ and
-computes minimal required sets. They also give a nice overview over previous
-approaches and highlight their shortcomings.\smallskip
-
-That begs the question whether the somewhat careless transformation in
-\cref{sec:trans} has one or both of the desirable optimality properties of the
-algorithm by \citet{optimal-lift}. \todo{As a separate theorem in
-\cref{sec:trans} or the appendix?}
-
-At least for the situation within GHC, we loosely argue that the constructed
-required sets are minimal: Because by the time our lambda lifter runs, the
-occurrence analyser will have rearranged recursive groups into strongly
-connected components with respect to the dependency graph, up to lexical
-scoping. Now consider a variable $\idx \in \absids(\idf_i)$ in the required set
-of a |let| binding for the binding group $\overline{\idf_i}$.
-
-Suppose there exists $j$ such that $\idx \in \rqs(\idf_j)$, in which case
-$\idx$ must be part of the minimal set: Note that lexical scoping prevents
-coalescing a recursive group with their dominators in the call graph if they
-define variables that occur in the group. \citet{optimal-lift} gave a
-convincing example that this was indeed what makes the quadratic time approach
-from \citet{fast-lift} non-optimal with respect to the size of the required
-sets.
-
-When $\idx \notin \rqs(\idf_j)$ for any $j$, $\idx$ must have been the result of
-expanding some function $\idg \in \rqs(\idf_j)$, with $\idx \in \absids(\idg)$.
-Lexical scoping dictates that $\idg$ is defined in an outer binding, an
-ancestor in the syntax tree, that is.  So, by induction over the pre-order
-traversal of the syntax tree employed by the transformation, we can assume that
-$\absids(\idg)$ must already have been minimal and therefore that $\idx$ is
-part of the minimal set of $\idf_i$.
-
-Regarding runtime: \citet{optimal-lift} made sure that they only need to
-expand the free variables of at most one dominator that is transitively
-reachable in the call graph. We think it's possible to find this \emph{lowest
-upward vertical dependence} in a separate pass over the syntax tree, but we
-found the transformation to be sufficiently fast even in the presence of
-unnecessary variable expansions for a total of $\mathcal{O}(n^2)$ set
-operations. Ignoring needless expansions, the transformation performs
-$\mathcal{O}(n)$ set operations when merging free variable sets.\smallskip
+computes minimal required sets. We compare in \cref{ssec:opt} to their
+approach. They also give a nice overview over previous approaches and highlight
+their shortcomings.
 
 Operationally, an STG function is supplied a pointer to its closure as the
 first argument. This closure pointer is similar to how object-oriented
@@ -1214,7 +1195,7 @@ variables for a particular function and a prior free variable analysis
 guarantees that the closure record will only contain free variables that are
 actually used in the body of the function.
 
-\citet{stg} anticipates the effects of lambda-lifting in the context of the
+\citet{stg} anticipates the effects of lambda lifting in the context of the
 STG machine, which performs closure conversion for code generation. Without the
 subsequent step which inlines the partial application, he comes to the
 conclusion that direct accesses into the environment from the function body
@@ -1306,7 +1287,7 @@ for more realistic and less conservative estimates.
   National Science Foundation.
 \end{acks}
 
-\todo{acknowledgements}
+\todo[inline]{acknowledgements}
 
 \makeatletter
   \providecommand\@@dotsep{5}
