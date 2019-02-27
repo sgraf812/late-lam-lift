@@ -1372,7 +1372,8 @@ implementation in the Glasgow Haskell Compiler. The heuristics that decide when
 to reject a lifting opportunity were derived from concrete operational
 deficiencies. We assessed the effectiveness of this evidence-based approach on
 a large corpus of Haskell benchmarks and concluded that average Haskell
-programs sped up by 0.7\% in the geometric mean.
+programs sped up by 0.7\% in the geometric mean and reliably reduced the number
+of allocations.
 
 One of our main contributions was a conservative estimate of closure growth
 resulting from a lifting decision. Although prohibiting any closure growth
