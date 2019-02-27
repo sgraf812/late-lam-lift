@@ -115,6 +115,7 @@
 \newcommand{\expr}{\ty{Expr}}
 \newcommand{\bindgr}{\ty{Bind}}
 \newcommand{\rhs}{\ty{Rhs}}
+\newcommand{\prog}{\ty{Prog}}
 \newcommand{\emptybind}{\varepsilon}
 \newcommand{\wrap}{\fun{wrap}}
 \newcommand{\dom}[1]{\sfop{dom}\,#1}
@@ -167,19 +168,18 @@
 \email{sebastian.graf@@kit.edu}
 
 \begin{abstract}
-Lambda lifting is a well-known transformation \citep{lam-lift},
-traditionally employed for compiling functional programs to supercombinators
-\citep{fun-impl}. However, more recent abstract machines for functional
-languages like OCaml and Haskell tend to do closure conversion instead for
-direct access to the environment, so lambda lifting is no longer necessary to
-generate machine code.
+Lambda lifting is a well-known transformation, traditionally employed for
+compiling functional programs to supercombinators . However, more recent
+abstract machines for functional languages like OCaml and Haskell tend to do
+closure conversion instead for direct access to the environment, so lambda
+lifting is no longer necessary to generate machine code.
 
 We propose to revisit selective lambda lifting in this context as an optimising
 code generation strategy and conceive heuristics to identify beneficial lifting
 opportunities. We give a static analysis for estimating impact on heap
 allocations of a lifting decision. Perfomance measurements of our
 implementation within the Glasgow Haskell Compiler on a large corpus of Haskell
-suggest reliable speedups.
+benchmarks suggest modest speedups.
 \end{abstract}
 
 %% 2012 ACM Computing Classification System (CSS) concepts
@@ -223,20 +223,21 @@ suggest reliable speedups.
 
 \section{Introduction}
 
-The ability to define nested auxiliary functions referencing free variables is
-essential when programming in functional languages. Compilers had to generate
-code for such functions since the dawn of Lisp. 
+The ability to define nested auxiliary functions referencing variables from
+outer scopes is essential when programming in functional languages. Compilers
+had to generate efficient code for such functions since the dawn of Scheme.
 
-A compiler compiling down to G-machine code \citep{fun-impl} would generate
-code by converting all free variables into parameters in a process called
-\emph{lambda lifting} \citep{lam-lift}. The resulting functions are
-insensitive to lexical scope and can be floated to top-level.
+\Citet{lam-lift} advocated \emph{lambda lifting} for efficient code generation
+of lazy functional languages to G-machine code \citep{g-machine}. Lambda
+lifting converts all free variables of a function body into parameters. The
+resulting functions are insensitive to lexical scope and can be floated to
+top-level and serve as supercombinators in Johnsson's compilation scheme.
 
 An alternative to lambda lifting is \emph{closure conversion}, where references
 to free variables are lowered as field accesses on a record containing all free
 variables of the function, the \emph{closure environment}, passed as an
-implicit parameter to the function. All functions are then regarded as
-\emph{closures}: A pair of a code pointer and an environment.
+implicit parameter to the function body. All lowered functions are then
+regarded as \emph{closures}: A pair of a code pointer and an environment.
 
 Current abstract machines for functional programming languages such as the
 spineless tagless G-machine \citep{stg} choose to do closure conversion
@@ -252,8 +253,10 @@ f a n = f (g (n `mod` 2)) (n-1)
     g n = 1 + g (n-1)
 \end{code}
 
-Closure conversion of |g| would allocate an environment with an entry for |a|.
-Now imagine we lambda lift |g| before that happens:
+Closure conversion would allocate two closures: A \emph{static} closure for |f|
+with an empty environment and \emph{dynamic} closure for |g| with an
+environment on the heap, containing an entry for |a|. Now imagine we lambda
+lift |g| before that happens:
 
 \begin{code}
 g_up a 0 = a
@@ -265,9 +268,14 @@ f a n = f (g (n `mod` 2)) (n-1)
     g = g_up a
 \end{code}
 
-Note that closure conversion would still allocate the same environments. Lambda
-lifting just separated closure allocation from the code pointer of |g_up|.
-Suppose now that the partial application |g| gets inlined:
+Note that closure conversion would still allocate static closures for |f| and
+additionally for |g_up| here. These don't concern us in the rest of this paper,
+as they are only allocated once and don't contribute to heap allocations.
+
+Other than that, there will still be the same heap allocations due to the
+closure environment for |g|. Lambda lifting just separated closure allocation
+from the function body |g_up|. Suppose now that the partial application |g|
+gets inlined:
 
 \begin{code}
 g_up a 0 = a
@@ -277,47 +285,55 @@ f a 0 = a
 f a n = f (g_up a (n `mod` 2)) (n-1)
 \end{code}
 
-The closure for |g| and the associated allocations completely vanished in
-favour of a few more arguments at its call site! The result looks much simpler.
+The closure for |g| and the associated heap allocation completely vanished in
+favour of a few more arguments at the call site! The result looks much simpler.
 And indeed, in concert with the other optimisations within the Glasgow Haskell
-Compiler (GHC), the above transformation makes |f| non-allocating, resulting in
-a speedup of 50\%.
+Compiler (GHC), the above transformation makes |f|
+non-allocating\footnote{Implicitly ignoring runtime and static closure
+allocations, as for the rest of this paper.}, resulting in a speedup of 50\%.
 
 So should we just perform this transformation on any candidate? We are inclined
 to disagree. Consider what would happen to the following program:
 
 \begin{code}
+f :: [Int] -> [Int] -> Int -> Int
 f a b 0 = a
 f a b 1 = b
 f a b n = f (g n) a (n `mod` 2)
   where
     g 0 = a
     g 1 = b
-    g n = n : g (n-1)
+    g n = n : h
+      where
+        h = g (n-1)
 \end{code}
 
-Because of laziness, this will allocate a thunk for the recursive call to |g|
-in the tail of the cons cell. Lambda lifting yields:
+Because of laziness, this will allocate a thunk for |h|. Closure conversion
+will then allocate an environment for |h| on the heap, closing over |g|. Lambda
+lifting yields:
 
 \begin{code}
 g_up a b 0 = a
 g_up a b 1 = b
-g_up a b n = n : g_up a b (n-1)
+g_up a b n = n : h
+  where
+    h = g_up a b (n-1)
 
 f a b 0 = a
 f a b 1 = b
 f a b n = f (g_up a b n) a (n `mod` 2)
 \end{code}
 
-The closure for |g| has vanished, but the thunk in |g_up|'s body now closes
-over two additional variables. Worse, for a single allocation of |g|'s closure
-environment, we get |n| allocations on the recursive code path! Apart from
-making |f| allocate 10\% more, this also incurs a slowdown of more than 10\%.
+The closure for |g| is gone, but |h| now closes over |a| and |b| instead of
+|g|\footnote{There's no need to close over a static closure like |g_up|.}.
+Worse, for a single allocation of |g|'s closure environment, we get |n|
+additional allocations of |h|'s closure environment on the recursive code path!
+Apart from making |f| allocate 10\% more, this also incurs a slowdown of more
+than 10\%.
 
-Unsurprisingly, there are a number of subtleties to keep in mind. This work is
-concerned with finding out when doing this transformation is beneficial to
-performance, providing an interesting angle on the interaction between lambda
-lifting and closure conversion. These are our contributions:
+This work is concerned with finding out when doing this transformation is
+beneficial to performance, providing a new angle on the interaction between
+lambda lifting and closure conversion. These are our contributions:
 
 \begin{itemize}
 \item We describe a selective lambda lifting pass that maintains the invariants
@@ -331,10 +347,11 @@ as part of its STG pipeline. The decision to do lambda lifting this late
 in the compilation pipeline is a natural one, given that accurate allocation
 estimates aren't easily possible on GHC's more high-level Core language. We
 evaluate our pass against the \texttt{nofib} benchmark suite (\cref{sec:eval})
-and find that our static analysis works as advertised.
-\item Our approach builds on and is similar to many previous works, which we
-compare to in \cref{sec:relfut}.
+and find that our static analysis soundly predicts changes in heap allocations.
 \end{itemize}
+
+Our approach builds on and is similar to many previous works, which we compare
+to in \cref{sec:relfut}.
 
 \section{Language}
 
@@ -347,8 +364,8 @@ of the paper.
 \subsection{Syntax}
 
 As can be seen in \cref{fig:syntax}, we extended untyped lambda calculus with
-|let| bindings, just as in \citet{lam-lift}. There are a few additional
-STG-inspired characteristics:
+|let| bindings, just as in \citet{lam-lift}. Inspired by STG, we also assume
+A-normal form (ANF) \citep{anf}:
 
 \begin{itemize}
 \item Every lambda abstraction is the right-hand side of a |let| binding
@@ -356,12 +373,17 @@ STG-inspired characteristics:
 variable references)
 \end{itemize}
 
-We decomposed |let| expressions into smaller syntactic forms for the simple
-reason that it allows the analysis and transformation to be defined in more
-granular (and thus more easily understood) steps. Throughout this paper, we
-assume that variable names are globally unique.
+Throughout this paper, we assume that variable names are globally unique.
+Similar to \citet{lam-lift}, programs are represented by a group of top-level
+bindings and an expression to evaluate.
 
-\begin{figure}[h]
+Whenever there's an example in which the expression to evaluate is not closed,
+assume that free variables are bound in some outer context omitted for brevity.
+Examples may also compromise on adhearing to ANF for readability (regarding
+giving all complex subexpressions a name, in particular), but we will point out
+the details if need be.
+
+\begin{figure}[t]
 \begin{alignat*}{6}
 \text{Variables} &\quad& f,x,y &\in \var &&&&&\quad& \\
 \text{Expressions} && e &\in \expr && {}\Coloneqq{} && x && \text{Variable} \\
@@ -369,6 +391,7 @@ assume that variable names are globally unique.
             &&&&   & \mathwithin{{}\Coloneqq{}}{\mid} && \mkLetb{b}{e} && \text{Recursive \keyword{let}} \\
 \text{Bindings} && b &\in \bindgr && {}\Coloneqq{} && \overline{f \mathrel{=} r} && \\
 \text{Right-hand sides} && r &\in \rhs && {}\Coloneqq{} && \lambda \mskip1.5mu \overline{x} \to e && \\
+\text{Programs} && p &\in \prog && {}\Coloneqq{} && \overline{f\; \overline{x} = e;}\; e' && \\
 \end{alignat*}
 \caption{An STG-like untyped lambda calculus}
 \label{fig:syntax}
@@ -376,21 +399,21 @@ assume that variable names are globally unique.
 
 \subsection{Semantics}
 
-Giving a full operational semantics for the calculus in \cref{fig:syntax} is
-out of scope for this paper, but since it's a subset of the STG language, its
-semantics follows directly from \citet{fastcurry}.
+Since our calculus is a subset of the STG language, its semantics follows
+directly from \citet{fastcurry}.
 
 An informal treatment of operational behavior is still in order to express the
 consequences of lambda lifting. Since every application only has trivial
 arguments, all complex expressions had to be bound by a |let| in a prior
-compilation step. Consequently, allocation happens almost entirely at |let|
+compilation step. Consequently, heap allocation happens almost entirely at |let|
 bindings closing over free variables of their RHSs, with the exception of
-partial applications resulting from over- or undersaturated calls.
+intermediate partial applications resulting from over- or undersaturated calls.
 
 Put plainly: If we manage to get rid of a |let| binding, we get rid of one
-source of heap allocation.
+source of heap allocation since there is no closure to allocate during closure
+conversion.
 
-\section{When to lift} % Or: Analysis?
+\section{When to lift}
 
 \label{sec:analysis}
 
@@ -401,33 +424,23 @@ requirements for our transformation defined in \cref{sec:trans}. Operational
 considerations will lead to the introduction of multiple criteria for rejecting
 a lift, motivating a cost model for estimating impact on heap allocations.
 
-We'll take a somewhat loose approach to following the STG invariants in our
-examples (regarding giving all complex subexpressions a name, in particular),
-but will point out the details if need be.
-
 \subsection{Syntactic consequences}
 
-Deciding to lambda lift a binding |let f = \a b c -> e in e'| where |x|, |y|
-and |z| occur free in |e|, followed by inlining the residual partial
-application, has the following consequences:
+Deciding to lambda lift a binding |let f = \a b c -> e in e'| where |x| and |y|
+occur free in |e|, followed by inlining the residual partial application, has
+the following consequences:
 
 \begin{enumerate}[label=\textbf{(S\arabic*)},ref=(S\arabic*)]
-  \item \label{s1} It eliminates the |let| binding.
-  \item \label{s2} It creates a new top-level definition.
-  \item \label{s3} It replaces all occurrences of |f| in |e'| and |e| (now
-  part of the new top-level definition) by an application of the lifted
-  top-level binding to its former free variables, replacing the whole |let|
-  binding by the term |[f =-> f_up x y z]e'|.\footnote{Actually, this will
-  also need to give a name to new non-atomic argument expressions mentioning
-  |f|. We'll argue shortly that there is hardly any benefit in allowing these
-  cases.}
+  \item \label{s1} It replaces the |let| expression by its body.
+  \item \label{s2} It creates a new top-level definition |f_up|.
+  \item \label{s3} It replaces all occurrences of |f| in |e'| and |e| by an
+  application of the lifted top-level binding to its former free variables |x|
+  and |y|\footnote{This will also need to give a name to new non-atomic
+  argument expressions mentioning |f|. We'll argue in \cref{ssec:op} that there
+  is hardly any benefit in allowing these cases.}.
   \item \label{s4} All non-top-level variables that occurred in the |let|
   binding's right-hand side become parameter occurrences.
 \end{enumerate}
-
-Naming seemingly obvious things this way means we can precisely talk about
-\emph{why} we are suffering from one of the operational symptoms discussed
-next.
 
 \subsection{Operational consequences}
 \label{ssec:op}
@@ -439,12 +452,12 @@ to lift.
 \paragraph{Argument occurrences.} \label{para:arg} Consider what happens if |f|
 occurred in the |let| body |e'| as an argument in an application, as in |g 5 x
 f|. \ref{s3} demands that the argument occurrence of |f| is replaced by an
-application expression. This, however, would yield a syntactically invalid
-expression because the STG language only allows trivial arguments in an
+application expression. This, however, would yield the syntactically invalid
+expression |g 5 x (f_up x y)|. ANF only allows trivial arguments in an
 application!
 
-Thus, our transformation would have to immediately wrap the application
-in a partial application: |g 5 x f ==> let f' = f_up x y z in g 5 x f'|. But
+Thus, our transformation would have to immediately wrap the application in a
+partial application: |g 5 x (f_up x y) ==> let f' = f_up x y in g 5 x f'|. But
 this just reintroduces at every call site the very allocation we wanted to
 eliminate through lambda lifting! Therefore, we can identify a first criterion
 for non-beneficial lambda lifts:
@@ -454,7 +467,7 @@ for non-beneficial lambda lifts:
 \end{introducecrit}
 
 A welcome side-effect is that the application case of the transformation in
-\cref{fig:alg} becomes much simpler: The complicated |let| wrapping becomes
+\cref{sec:trans} becomes much simpler: The complicated |let| wrapping becomes
 unnecessary.
 
 \paragraph{Closure growth.} \ref{s1} means we don't allocate a closure on the
@@ -519,7 +532,7 @@ related to \ref{s4}, relevant in programs with higher-order functions:
 
 \begin{code}
 let f = \x -> 2*x
-    mapF = \xs -> ... f x ...
+    mapF = \xs -> case xs of (x:xs') -> ... f x ... mapF xs' ...
 in mapF [1..n]
 \end{code}
 
@@ -529,7 +542,7 @@ early bound call in an object-oriented language. Lifting |mapF| (but not |f|)
 yields the following program:
 
 \begin{code}
-mapF_up f xs = ... f x ...;
+mapF_up f xs = case xs of (x:xs') -> ... f x ... mapF_up f xs' ...;
 let f = \x -> 2*x
 in mapF_up f [1..n]
 \end{code}
@@ -543,21 +556,17 @@ unknown (\ie late bound) call would need to go through a generic apply function
   \item \label{h:known} Don't lift a binding when doing so would turn known calls into unknown calls
 \end{introducecrit}
 
-% We don't really look at code size concerns. Benchmarks suggest a decrease of
-% 0.1\%, nothing too concerning.
-%\paragraph{Code size.} \ref{s2} (and, to a lesser extent, all other
-%consequences) have the potential to increase or decrease code size. We regard
-%this a secondary concern, but will have a look at it in \cref{sec:eval}.
-
-\paragraph{Sharing.} Consider what happens when we lambda lift a updatable binding, like a thunk:
+\paragraph{Sharing.} Consider what happens when we lambda lift a updatable
+binding, like a thunk\footnote{Assume that all nullary bindings are memoised.}:
 
 \begin{code}
-let t = \ -> x + y -- Assume all nullary bindings are memoised
+let t = \ -> x + y
     addT = \z -> z + t
 in map addT [1..n]
 \end{code}
 
-The addition within |t| will be computed only once for each complete evaluation of the expression. This is after lambda lifting:
+The addition within |t| will be computed only once for each complete evaluation
+of the expression. Compare this to the lambda lifted version:
 
 \begin{code}
 t x y = x + y;
@@ -1021,9 +1030,10 @@ f x y = ... g ... h ...
 \label{sec:eval}
 
 In order to assess effectiveness of our new optimisation, we measured
-performance on the \texttt{nofib} benchmark suite \citep{nofib} against a
-GHC 8.6.1
-release\footnote{\url{https://github.com/ghc/ghc/tree/0d2cdec78471728a0f2c487581d36acda68bb941}}\footnote{Measurements were conducted on an Intel Core i7-6700 machine running Ubuntu 16.04.}.
+performance on the \texttt{nofib} benchmark suite \citep{nofib} against a GHC
+8.6.1
+release\footnote{\url{https://github.com/ghc/ghc/tree/0d2cdec78471728a0f2c487581d36acda68bb941}}\footnote{Measurements
+were conducted on an Intel Core i7-6700 machine running Ubuntu 16.04.}.
 
 We will first look at how our chosen parameterisation (\eg the optimisation
 with all heuristics activated as advertised) performs in comparison to the
