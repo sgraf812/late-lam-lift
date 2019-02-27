@@ -132,7 +132,7 @@
 \newcommand{\card}[1]{\left\vert#1\right\vert}
 
 % https://tex.stackexchange.com/a/186520
-\setlength\mathindent{2em}
+\setlength\mathindent{1.5em}
 
 % https://tex.stackexchange.com/a/268475/52414
 \newlength\stextwidth
@@ -244,7 +244,8 @@ Current abstract machines for functional programming languages such as the
 spineless tagless G-machine \citep{stg} choose to do closure conversion
 instead of lambda lifting for code generation. Although lambda lifting seems to
 have fallen out of fashion, we argue that it bears potential as an optimisation
-pass prior to closure conversion. Take this Haskell code as an example:
+pass prior to closure conversion. Take this (completely contrived) Haskell code
+as an example:
 
 \begin{code}
 f a 0 = a
@@ -386,7 +387,7 @@ the details if need be.
 
 \begin{figure}[t]
 \begin{alignat*}{6}
-\text{Variables} &\quad& f,x,y &\in \var &&&&&\quad& \\
+\text{Variables} &\quad& f,g,x,y &\in \var &&&&&\quad& \\
 \text{Expressions} && e &\in \expr && {}\Coloneqq{} && x && \text{Variable} \\
             &&&&   & \mathwithin{{}\Coloneqq{}}{\mid} && f\; \overline{x} && \text{Function call} \\
             &&&&   & \mathwithin{{}\Coloneqq{}}{\mid} && \mkLetb{b}{e} && \text{Recursive \keyword{let}} \\
@@ -478,28 +479,31 @@ decrease heap allocation, which can be captured by a metric we call
 introduction. We'll look into a simpler example, occuring in some expression
 defining |x| and |y|:
 
+\begin{minipage}{0.45\textwidth}
 \begin{code}
 let f = \a b -> ... x ... y ...
     g = \d -> f d d + x
 in g 5
 \end{code}
-
-Should |f| be lifted? It's hard to tell without actually seeing the lifted
-version:
-
+\end{minipage}%
+\begin{minipage}{0.1\textwidth}
+$\xRightarrow{\text{lift} \idf}$
+\end{minipage}%
+\begin{minipage}{0.45\textwidth}
 \begin{code}
 f_up x y a b = ...;
 let g = \d -> f_up x y d d + x
 in g 5
 \end{code}
+\end{minipage}
 
-Just counting the number of variables occurring in closures, the effect of
-\ref{s1} saved us two slots. At the same time, \ref{s3} removes |f| from |g|'s
-closure (no need to close over the top-level constant |f_up|), while
-simultaneously enlarging it with |f|'s former free variable |y|. The new
-occurrence of |x| doesn't contribute to closure growth, because it already
-occurred in |g| prior to lifting. The net result is a reduction of two slots,
-so lifting |f| seems worthwhile. In general:
+Should |f| be lifted? Just counting the number of variables occurring in
+closures, the effect of \ref{s1} saved us two slots. At the same time, \ref{s3}
+removes |f| from |g|'s closure (no need to close over the top-level constant
+|f_up|), while simultaneously enlarging it with |f|'s former free variable |y|.
+The new occurrence of |x| doesn't contribute to closure growth, because it
+already occurred in |g| prior to lifting. The net result is a reduction of two
+slots, so lifting |f| seems worthwhile. In general:
 
 \begin{introducecrit}
   \item \label{h:alloc} Don't lift a binding when doing so would increase
@@ -531,27 +535,36 @@ transformation, we assume that this already happened in a prior pass.
 \paragraph{Turning known calls into unknown calls.} There's another aspect
 related to \ref{s4}, relevant in programs with higher-order functions:
 
+\begin{minipage}{0.45\textwidth}
 \begin{code}
 let f = \x -> 2*x
-    mapF = \xs -> case xs of (x:xs') -> ... f x ... mapF xs' ...
+    mapF = \xs -> case xs of
+      (x:xs') -> ... f x ... mapF xs' ...
+      [] -> ...
 in mapF [1..n]
 \end{code}
-
-Here, there is a \emph{known call} to |f| in |mapF| that can be lowered as a
-direct jump to a static address \citep{fastcurry}. This is similar to an
-early bound call in an object-oriented language. Lifting |mapF| (but not |f|)
-yields the following program:
-
+\end{minipage}%
+\begin{minipage}{0.1\textwidth}
+$\xRightarrow{\text{lift} \id{mapF}}$
+\end{minipage}%
+\begin{minipage}{0.45\textwidth}
 \begin{code}
-mapF_up f xs = case xs of (x:xs') -> ... f x ... mapF_up f xs' ...;
+mapF_up f xs = case xs of
+  (x:xs') -> ... f x ... mapF_up f xs' ...
+  [] -> ...;
 let f = \x -> 2*x
 in mapF_up f [1..n]
 \end{code}
+\end{minipage}
 
-Now, |f| is passed as an argument to |mapF_up| and its address is unknown
-within the body of |mapF_up|. For lack of a global points-to analysis, this
-unknown (\ie late bound) call would need to go through a generic apply function
-\citep{fastcurry}, incurring a major slow-down.
+Here, there is a \emph{known call} to |f| in |mapF| that can be lowered as a
+direct jump to a static address \citep{fastcurry}. This is similar to an
+early bound call in an object-oriented language.
+
+After lifting |mapF|, |f| is passed as an argument to |mapF_up| and its address
+is unknown within the body of |mapF_up|. For lack of a global points-to
+analysis, this unknown (\ie late bound) call would need to go through a generic
+apply function \citep{fastcurry}, incurring a major slow-down.
 
 \begin{introducecrit}
   \item \label{h:known} Don't lift a binding when doing so would turn known calls into unknown calls
@@ -560,24 +573,30 @@ unknown (\ie late bound) call would need to go through a generic apply function
 \paragraph{Sharing.} Consider what happens when we lambda lift a updatable
 binding, like a thunk\footnote{Assume that all nullary bindings are memoised.}:
 
+\begin{minipage}{0.45\textwidth}
 \begin{code}
 let t = \ -> x + y
     addT = \z -> z + t
 in map addT [1..n]
 \end{code}
-
-The addition within |t| will be computed only once for each complete evaluation
-of the expression. Compare this to the lambda lifted version:
-
+\end{minipage}%
+\begin{minipage}{0.1\textwidth}
+$\xRightarrow{\text{lift} \id{t}}$
+\end{minipage}%
+\begin{minipage}{0.45\textwidth}
 \begin{code}
 t x y = x + y;
 let addT = \z -> z + t x y
 in map addT [1..n]
 \end{code}
+\end{minipage}
 
-This will re-evaluate |t| $n$ times! In general, lambda lifting updatable
-bindings or constructor bindings destroys sharing, thus possibly duplicating
-work in each call to the lifted binding.
+The addition within the |t| prior to lifting will be computed only once for each
+complete evaluation of the expression. Compare this to the lambda lifted
+version, which will re-evaluate |t| $n$ times!
+
+In general, lambda lifting updatable bindings or constructor bindings destroys
+sharing, thus possibly duplicating work in each call to the lifted binding.
 
 \begin{introducecrit}
   \item Don't lift a binding that is updatable or a constructor application
@@ -594,11 +613,23 @@ estimating closure growth.
 
 Let's revisit the example from above:
 
+\begin{minipage}{0.45\textwidth}
 \begin{code}
 let f = \a b -> ... x ... y ...
     g = \d -> f d d + x
 in g 5
 \end{code}
+\end{minipage}%
+\begin{minipage}{0.1\textwidth}
+$\xRightarrow{\text{lift} \idf}$
+\end{minipage}%
+\begin{minipage}{0.45\textwidth}
+\begin{code}
+f_up x y a b = ... x ... y ...;
+let g = \d -> f_up x y d d + x
+in g 5
+\end{code}
+\end{minipage}
 
 We concluded that lifting |f| would be beneficial, saving us allocation of two
 free variable slots. There are two effects at play here. Not having to allocate
@@ -612,6 +643,7 @@ contributes to closure growth, because |x| was already free in |g| before.
 This phenomenon is amplified whenever allocation happens under a multi-shot
 lambda, as the following example demonstrates:
 
+\begin{minipage}{0.45\textwidth}
 \begin{code}
 let f = \a b -> ... x ... y ...
     g = \d ->
@@ -619,6 +651,19 @@ let f = \a b -> ... x ... y ...
       in h x
 in g 1 + g 2 + g 3
 \end{code}
+\end{minipage}%
+\begin{minipage}{0.1\textwidth}
+$\xRightarrow{\text{lift} \idf}$
+\end{minipage}%
+\begin{minipage}{0.45\textwidth}
+\begin{code}
+f_up x y a b = ... x ... y ...;
+let g = \d ->
+      let h = \e -> f_up x y e e
+      in h x
+in g 1 + g 2 + g 3
+\end{code}
+\end{minipage}
 
 Is it still beneficial to lift |f|? Following our reasoning, we still save two
 slots from |f|'s closure, the closure of |g| doesn't grow and the closure |h|
@@ -632,14 +677,29 @@ can't reliably estimate how many times its closure will be allocated.
 Disallowing to lift any binding which is closed over under such a multi-shot
 lambda is conservative, but rules out worthwhile cases like this:
 
+\begin{minipage}{0.45\textwidth}
 \begin{code}
 let f = \a b -> ... x ... y ...
     g = \d ->
-      let h_1 = [f] \e -> f e e
-          h_2 = [f x y] \e -> f e e + x + y
+      let h_1 = \e -> f e e
+          h_2 = \e -> f e e + x + y
       in h_1 d + h_2 d
 in g 1 + g 2 + g 3
 \end{code}
+\end{minipage}%
+\begin{minipage}{0.1\textwidth}
+$\xRightarrow{\text{lift} \idf}$
+\end{minipage}%
+\begin{minipage}{0.45\textwidth}
+\begin{code}
+f_up x y a b = ... x ... y ...;
+let g = \d ->
+      let h_1 = \e -> f_up x y e e
+          h_2 = \e -> f_up x y e e + x + y
+      in h_1 d + h_2 d
+in g 1 + g 2 + g 3
+\end{code}
+\end{minipage}
 
 Here, the closure of |h_1| grows by one, whereas that of |h_2| shrinks by one,
 cancelling each other out. Hence there is no actual closure growth happening
