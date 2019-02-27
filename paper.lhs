@@ -52,7 +52,7 @@
 \usepackage{mathtools}
 \usepackage{xcolor}
 \usepackage{xspace}
-\usepackage{todonotes}
+\usepackage[disable]{todonotes}
 \usepackage{enumitem}
 \usepackage{hyperref}
 \usepackage{cleveref}
@@ -67,6 +67,7 @@
 \newcommand{\cf}{cf.\@@\xspace}
 \newcommand{\eg}{e.g.,\@@\xspace}
 \newcommand{\ie}{i.e.\@@\xspace}
+\newcommand{\vs}{vs.\@@\xspace}
 
 % Tables
 \newcommand{\progname}[1]{\texttt{#1}}
@@ -950,17 +951,20 @@ algorithm by \citet{optimal-lift}.
 For the situation within GHC, we loosely argue that the constructed required
 sets are minimal: Because by the time our lambda lifter runs, the occurrence
 analyser will have rearranged recursive groups into strongly connected
-components with respect to the dependency graph, up to lexical scoping. Now
-consider a variable $\idx \in \absids(\idf_i)$ in the required set of a |let|
-binding for the binding group $\overline{\idf_i}$.
+components with respect to the call graph, up to lexical scoping. Now consider
+a variable $\idx \in \absids(\idf_i)$ in the required set of a |let| binding
+for the binding group $\overline{\idf_i}$. We'll look into two cases, depending
+on whether $\idx$ occurs free in any of the binding group's RHSs or not.
 
-Suppose $\idx \notin \fvs(\idf_j)$ for any $j$. Then $\idx$ must have been the
-result of expanding some function $\idg \in \fvs(\idf_j)$, with $\idx \in
-\absids(\idg)$. Lexical scoping dictates that $\idg$ is defined in an outer
+Assume that $\idx \notin \fvs(\idf_j)$ for every $j$. Then $\idx$ must have
+been the result of expanding some function $\idg \in \fvs(\idf_j)$, with $\idx
+\in \absids(\idg)$. Lexical scoping dictates that $\idg$ is defined in an outer
 binding, an ancestor in the syntax tree, that is.  So, by induction over the
 pre-order traversal of the syntax tree employed by the transformation, we can
 assume that $\absids(\idg)$ must already have been minimal and therefore that
-$\idx$ is part of the minimal set of $\idf_i$.
+$\idx$ is part of the minimal set of $\idf_i$ if $\idg$ would have been prior
+to lifting $\idg$. Since $\idg \in \fvs(\idf_j)$ by definition, this is handled
+by the next case.
 
 Otherwise there exists $j$ such that $\idx \in \fvs(\idf_j)$. When $i = j$,
 $\idf_i$ uses $\idx$ directly, so $\idx$ is part of the minimal set.
@@ -968,28 +972,30 @@ $\idf_i$ uses $\idx$ directly, so $\idx$ is part of the minimal set.
 Hence assume $i \neq j$. Still, $\idf_i$ needs $\idx$ to call the current
 activation of $\idf_j$, directly or indirectly. Otherwise there is a lexically
 enclosing function on every path in the call graph between $\idf_i$ and
-$\idf_j$ that redefines $\idx$ and creates a new activation of the binding
-group. But this kind of call relationship implies that $\idf_i$ and $\idf_j$
-don't need to be part of the same binding group to begin with! Indeed, GHC
-would have split the binding group into separate binding groups. So, $\idx$ is
-part of the minimal set.
+$\idf_j$ that defines $\idx$ and creates a new activation of the binding group.
+But this kind of call relationship implies that $\idf_i$ and $\idf_j$ don't
+need to be part of the same binding group to begin with! Indeed, GHC would have
+split the binding group into separate binding groups. So, $\idx$ is part of the
+minimal set.
 
-A similar situation is depicted in \cref{fig:example}. |h| and |g| are in a
-call relationship similar to $\idf_i$ and $\idf_j$ above. Every path in the
-call graph between |g| and |h| goes through |f|, so |g| and |h| don't actually
-need to be part of the same binding group. The only truly recursive function in
-that program is |f|. All other functions would be nested |let| bindings after
-GHC's occurrence analysis, possibly in lexically separate subtrees. The example
+An instance of the last case is depicted in \cref{fig:example}. |h| and |g| are
+in the indirect call relationship of $\idf_i$ and $\idf_j$ above. Every path in
+the call graph between |g| and |h| goes through |f|, so |g| and |h| don't
+actually need to be part of the same binding group, even though they are part
+of the same strongly-connected component of the call graph. The only truly
+recursive function in that program is |f|. All other functions would be nested
+|let| bindings (\cf the right column of the \cref{fig:example}) after GHC's
+middleend transformation, possibly in lexically separate subtrees. The example
 is of \citet{optimal-lift} and served as a prime example in showing the
 non-optimality of \citet{fast-lift}.
 
 Generally, lexical scoping prevents coalescing a recursive group with their
 dominators in the call graph if the dominators define variables that occur in
-the group. \citet{optimal-lift} gave convincing arguments that this was indeed
+the group. \citeauthor{optimal-lift} gave convincing arguments that this was indeed
 what makes the quadratic time approach from \citet{fast-lift} non-optimal with
 respect to the size of the required sets.
 
-Regarding runtime: \citet{optimal-lift} made sure that they only need to
+Regarding runtime: \citeauthor{optimal-lift} made sure that they only need to
 expand the free variables of at most one dominator that is transitively
 reachable in the call graph. We think it's possible to find this \emph{lowest
 upward vertical dependence} in a separate pass over the syntax tree, but we
@@ -1009,8 +1015,9 @@ f x y = ... g ... h ...
     h ... = ... y ... f ...
     i ... = ... f ...
 \end{code}
+\caption*{Haskell function}
 \end{minipage}%
-\begin{minipage}{0.5\textwidth}
+\begin{minipage}{0.3\textwidth}
 \centering
 \begin{tikzpicture}[->,>=stealth,thick,auto]
 \begin{scope}[every node/.style={circle,draw}]
@@ -1027,8 +1034,22 @@ f x y = ... g ... h ...
   (f) edge node {} (h)
   (h) edge [bend right] node {} (f);
 \end{tikzpicture}
+\caption*{Call graph}
+\end{minipage}%
+\begin{minipage}{0.3\textwidth}
+\begin{code}
+f x y =
+  ...
+  let g ... = let i ... = ... in ...
+  in g
+  ...
+  let h ... = ...
+  in h
+  ...
+\end{code}
+\caption*{Intermediate code produced by GHC}
 \end{minipage}
-\caption{Example call graph from \citet{optimal-lift}}
+\caption{Example from \citet{optimal-lift}}
 \label{fig:example}
 \end{figure}
 
@@ -1073,7 +1094,8 @@ great effect on allocations, barely affecting runtime. We believe this is due
 to the native code generator of GHC, because when compiling with the LLVM
 backend we measured speedups of roughly 5\%.
 
-\begin{table}
+\begin{figure}[t]
+\begin{minipage}{0.5\textwidth}
   \centering
   \begin{tabular}{lrr}
     \toprule
@@ -1083,10 +1105,26 @@ backend we measured speedups of roughly 5\%.
     \bottomrule
   \end{tabular}
   \caption{
-    Interesting benchmark changes compared to the GHC 8.6.1 baseline.
+    GHC baseline \vs late lambda lifting
   }
   \label{tbl:ll}
-\end{table}
+\end{minipage}%
+\begin{minipage}{0.5\textwidth}
+  \centering
+  \begin{tabular}{lrr}
+    \toprule
+    Program & \multicolumn{1}{c}{Bytes allocated} & \multicolumn{1}{c}{Runtime} \\
+    \midrule
+    \input{tables/c2.tex}
+    \bottomrule
+  \end{tabular}
+  \caption{
+    Late lambda lifting with \vs without \ref{h:alloc}
+  }
+  \label{tbl:ll-c2}
+\end{minipage}
+\end{figure}
+
 
 \subsection{Exploring the design space}
 
@@ -1129,31 +1167,8 @@ collector scales with total allocations and consequently would be punished by
 giving up closure growth checks, rendering future experiments in that direction
 infeasible.
 
-\begin{table}
-  \centering
-  \begin{tabular}{lrr}
-    \toprule
-    Program & \multicolumn{1}{c}{Bytes allocated} & \multicolumn{1}{c}{Runtime} \\
-    \midrule
-    \input{tables/c2.tex}
-    \bottomrule
-  \end{tabular}
-  \caption{
-    Comparison of our chosen parameterisation with one where we allow
-    arbitrary increases in allocations.
-  }
-  \label{tbl:ll-c2}
-\end{table}
-
-\paragraph{Turning known calls into unknown calls.} In \cref{tbl:ll-c4} we see
-that turning known into unknown calls generally has a negative effect on
-runtime. There is \texttt{nucleic2}, but we suspect that its improvements are
-due to non-deterministic code layout changes.
-
-By analogy to turning statically bound to dynamically bound calls in the
-object-oriented world this outcome is hardly surprising.
-
-\begin{table}
+\begin{figure}[t]
+\begin{minipage}{0.45\textwidth}
   \centering
   \begin{tabular}{lr}
     \toprule
@@ -1163,22 +1178,11 @@ object-oriented world this outcome is hardly surprising.
     \bottomrule
   \end{tabular}
   \caption{
-    Runtime comparison of our chosen parameterisation with one where we allow
-    turning known into unknown calls.
+    Late lambda lifting with \vs without \ref{h:known}
   }
   \label{tbl:ll-c4}
-\end{table}
-
-\paragraph{Varying the maximum arity of lifted functions.} \Cref{tbl:ll-c3}
-shows the effects of allowing different maximum arities of lifted functions.
-Regardless whether we allow less lifts due to arity (4--4) or more lifts
-(8--8), performance seems to degrade. Even allowing only slightly more
-recursive (5--6) or non-recursive (6--5) lifts doesn't seem to pay off.
-
-Taking inspiration in the number of argument registers dictated by the calling
-convention on AMD64 was a good call.
-
-\begin{table}
+\end{minipage}%
+\begin{minipage}{0.55\textwidth}
   \centering
   \begin{tabular}{lrrrr}
     \toprule
@@ -1189,13 +1193,28 @@ convention on AMD64 was a good call.
     \bottomrule
   \end{tabular}
   \caption{
-    Runtime comparison of our chosen parameterisation 5--5 with one where we
-    allow more or less maximum arity of lifted functions. A parameterisation
-    $n$--$m$ means maximum non-recursive arity was $n$ and maximum recursive
-    arity was $m$.
+    Late lambda lifting 5--5 \vs $n$--$m$ \ref{h:cc}
   }
   \label{tbl:ll-c3}
-\end{table}
+\end{minipage}
+\end{figure}
+
+\paragraph{Turning known calls into unknown calls.} In \cref{tbl:ll-c4} we see
+that turning known into unknown calls generally has a negative effect on
+runtime. There is \texttt{nucleic2}, but we suspect that its improvements are
+due to non-deterministic code layout changes.
+
+By analogy to turning statically bound to dynamically bound calls in the
+object-oriented world this outcome is hardly surprising.
+
+\paragraph{Varying the maximum arity of lifted functions.} \Cref{tbl:ll-c3}
+shows the effects of allowing different maximum arities of lifted functions.
+Regardless whether we allow less lifts due to arity (4--4) or more lifts
+(8--8), performance seems to degrade. Even allowing only slightly more
+recursive (5--6) or non-recursive (6--5) lifts doesn't seem to pay off.
+
+Taking inspiration in the number of argument registers dictated by the calling
+convention on AMD64 was a good call.
 
 \section{Related and Future Work}
 
@@ -1266,9 +1285,10 @@ opportunities to drop parameters, implementing a flexible lambda dropping pass
 Lambda dropping \citep{lam-drop}, or more specifically parameter dropping,
 has a close sibling in GHC in the form of the static argument transformation
 \citep{santos} (SAT). As such, the new lambda lifter is pretty much undoing
-SAT. We argue that SAT is mostly an enabling transformation for the middleend
+SAT. We believe that SAT is mostly an enabling transformation for the middleend
 and by the time our lambda lifter runs, these opportunities will have been
-exploited.
+exploited. Other than that, SAT turns unknown into known calls, but in
+\ref{h:known} we make sure that we don't undo that.
 
 \subsection{Future Work}
 
@@ -1284,16 +1304,6 @@ lift could be beneficial. Weighting closure growth by an estimate of execution
 frequency \citep{static-prof} could help here. Such static profiles would
 be convenient in a number of places, for example in the inliner or to determine
 viability of exploiting a costly optimisation opportunity.
-
-Our selective lambda lifter follows an all or nothing approach: Either the
-binding is lifted to top-level or it is left untouched. The obvious extension
-to this approach is to only abstract out \emph{some} free variables. If this
-would be combined with a subsequent float out pass, abstracting out the right
-variables (\ie those defined at the deepest level) could make for significantly
-less allocations when a binding can be floated out of a hot loop.  This is very
-similar to performing lambda lifting and then cautiously performing block
-sinking as long as it leads to beneficial opportunities to drop parameters,
-implementing a flexible lambda dropping pass \citep{lam-drop}.
 
 \section{Conclusion}
 
@@ -1313,23 +1323,15 @@ closure growth estimation could take static profiling information into account
 for more realistic and less conservative estimates.
 
 %% Acknowledgments
-\begin{acks}                            %% acks environment is optional
-                                        %% contents suppressed with 'anonymous'
+\begin{acks}
   %% Commands \grantsponsor{<sponsorID>}{<name>}{<url>} and
   %% \grantnum[<url>]{<sponsorID>}{<number>} should be used to
   %% acknowledge financial support and will be used by metadata
   %% extraction tools.
-  This material is based upon work supported by the
-  \grantsponsor{GS100000001}{National Science
-    Foundation}{http://dx.doi.org/10.13039/100000001} under Grant
-  No.~\grantnum{GS100000001}{nnnnnnn} and Grant
-  No.~\grantnum{GS100000001}{mmmmmmm}.  Any opinions, findings, and
-  conclusions or recommendations expressed in this material are those
-  of the author and do not necessarily reflect the views of the
-  National Science Foundation.
+  We'd like to thank Martin Hecker, Maximilian Wagner, Sebastian Ullrich and
+  Philipp Krüger for their proofreading. We are grateful for the pioneering
+  work of Nicolas Frisby for this thesis.
 \end{acks}
-
-\todo[inline]{acknowledgements}
 
 \makeatletter
   \providecommand\@@dotsep{5}
