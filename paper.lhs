@@ -1370,7 +1370,7 @@ We presented the combination of lambda lifting with an inlining pass for
 residual partial applications as an optimisation on STG terms and provided an
 implementation in the Glasgow Haskell Compiler. The heuristics that decide when
 to reject a lifting opportunity were derived from concrete operational
-deficiencies. We assessed the effectiveness of this evidence-based approach on
+considerations. We assessed the effectiveness of this evidence-based approach on
 a large corpus of Haskell benchmarks and concluded that average Haskell
 programs sped up by 0.7\% in the geometric mean and reliably reduced the number
 of allocations.
