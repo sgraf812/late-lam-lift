@@ -1201,11 +1201,10 @@ infeasible.
 
 \paragraph{Turning known calls into unknown calls.} In \cref{tbl:ll-c4} we see
 that turning known into unknown calls generally has a negative effect on
-runtime. There is \texttt{nucleic2}, but we suspect that its improvements are
-due to non-deterministic code layout changes.
-
-By analogy to turning statically bound to dynamically bound calls in the
-object-oriented world this outcome is hardly surprising.
+runtime. By analogy to turning statically bound to dynamically bound calls in
+the object-oriented world this outcome is hardly surprising. There is
+\texttt{nucleic2}, but we suspect that its improvements are due to
+non-deterministic code layout changes in GHC's backend.
 
 \paragraph{Varying the maximum arity of lifted functions.} \Cref{tbl:ll-c3}
 shows the effects of allowing different maximum arities of lifted functions.
@@ -1267,7 +1266,8 @@ The idea of regarding lambda lifting as an optimisation is not novel.
 \citet{lam-lift-opt} motivates selective lambda lifting in the context of
 compiling Scheme to C. Many of his liftability criteria are specific to
 Scheme and necessitated by the fact that lambda lifting is performed
-\emph{after} closure conversion.
+\emph{after} closure conversion, in contrast to our work, where lambda lifting
+happens prior to closure conversion.
 %Interestingly, lambda lifting binders that occur as parameters to higher-order
 %functions is combined with specialisation of those higher-order functions.
 
@@ -1293,17 +1293,13 @@ exploited. Other than that, SAT turns unknown into known calls, but in
 \subsection{Future Work}
 
 In \cref{sec:eval} we concluded that our closure growth heuristic was too
-conservative. Cursory digging reveals that in the case of \texttt{grep}, an
-inner loop of a list comprehension gets lambda lifted, where allocation only
-happens on the cold path for the particular input data of the benchmark.
-
-In general, lambda lifting STG terms and then inlining residual partial
-applications pushes allocations from definition sites into any closures that
-nest around call sites. If only closures on cold code paths grow, doing the
-lift could be beneficial. Weighting closure growth by an estimate of execution
-frequency \citep{static-prof} could help here. Such static profiles would
-be convenient in a number of places, for example in the inliner or to determine
-viability of exploiting a costly optimisation opportunity.
+conservative. In general, lambda lifting STG terms and then inlining residual
+partial applications pushes allocations from definition sites into any closures
+that nest around call sites. If only closures on cold code paths grow, doing
+the lift could be beneficial. Weighting closure growth by an estimate of
+execution frequency \citep{static-prof} could help here. Such static profiles
+would be convenient in a number of places, for example in the inliner or to
+determine viability of exploiting a costly optimisation opportunity.
 
 \section{Conclusion}
 
