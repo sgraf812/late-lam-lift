@@ -1154,6 +1154,9 @@ great effect on allocations, barely affecting runtime. We believe this is due
 to the native code generator of GHC, because when compiling with the LLVM
 backend we measured speedups of roughly 5\%.
 
+The same goes for \texttt{minimax}: We couldn't reproduce the runtime
+regressions with the LLVM backend.
+
 \begin{figure}[t]
 \begin{minipage}{0.5\textwidth}
   \centering
