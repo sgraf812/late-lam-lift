@@ -463,7 +463,7 @@ eliminate through lambda lifting! Therefore, we can identify a first criterion
 for non-beneficial lambda lifts:
 
 \begin{introducecrit}
-  \item \label{c1} Don't lift binders that occur as arguments
+  \item \label{h:argocc} Don't lift binders that occur as arguments
 \end{introducecrit}
 
 A welcome side-effect is that the application case of the transformation in
@@ -601,12 +601,12 @@ in g 5
 
 We concluded that lifting |f| would be beneficial, saving us allocation of two
 free variable slots. There are two effects at play here. Not having to allocate
-the closure of |f| due to \ref{s1} always leads to a one-time benefit.
+the closure of |f| due to \ref{s1} leads to a benefit once per activation.
 Simultaneously, each occurrence of |f| in a closure environment would be
-replaced by the free variables of its RHS. Removing |f| leads to a saving of
-one slot per closure, but the free variables |x| and |y| each occupy a closure
-slot in turn. Of these, only |y| really contributes to closure growth, because
-|x| was already free in |g| before.
+replaced by the free variables of its RHS. Replacing |f| by the top-level
+|f_up| leads to a saving of one slot per closure, but the free variables |x|
+and |y| each occupy a closure slot in turn. Of these, only |y| really
+contributes to closure growth, because |x| was already free in |g| before.
 
 This phenomenon is amplified whenever allocation happens under a multi-shot
 lambda, as the following example demonstrates:
@@ -650,8 +650,6 @@ under a multi-shot lambda by $\infty$.
 
 \subsubsection{Design}
 
-\todo[inline]{Go over this once more}
-
 Applied to our simple STG language, we can define a function $\cg$ (short for
 closure growth) with the following signature:
 
@@ -668,36 +666,41 @@ resulting from
 \item and removing all closure variables mentioned in the second set.
 \end{itemize}
 
+There's an additional invariant: We require that added and removed sets never
+overlap.
+
 In the lifting algorithm from \cref{sec:trans}, \cg would be consulted as part
 of the lifting decision to estimate the total effect on allocations. Assuming
-we were to decide whether to lift the binding group $\overline{\idf}$ out of an
-expression $\mkLetr{\idf}{\overline{\idx}}{\ide}{\ide'}$, the following
-expression conservatively estimates the effect on heap allocation of
-performing the lift\footnote{The effect of inlining the partial applications
-resulting from vanilla lambda lifting, to be precise.}:
+we were to decide whether to lift the binding group $\overline{\idg}$ out of an
+expression $\mkLetr{\idg}{\overline{\idx}}{\ide}{\ide'}$\footnote{We only ever
+lift a binding group wholly or not at all, due to \ref{h:known} and
+\ref{h:argocc}.}, the following expression conservatively estimates the effect
+on heap allocation of performing the lift\footnote{The effect of inlining the
+partial applications resulting from vanilla lambda lifting, to be precise.}:
 
 \[
-\cg^{\absids'(\idf_1)}_{\{\overline{\idf}\}}(\mkLetr{\idf}{\absids'(\idf_1)\,\overline{\idx}}{\ide}{\ide'}) - \sum_i 1 + \card{\fvs(\idf_i)\setminus \{\overline{\idf}\}} \]
+\cg^{\absids'(\idg_1)}_{\{\overline{\idg}\}}(\mkLetr{\idg}{\absids'(\idg_1)\,\overline{\idx}}{\ide}{\ide'}) - \sum_i 1 + \card{\fvs(\idg_i)\setminus \{\overline{\idg}\}} \]
 
 The \emph{required set} of extraneous parameters \citep{optimal-lift}
-$\absids'(\idf_1)$ for the binding group contains the additional parameters of
+$\absids'(\idg_1)$ for the binding group contains the additional parameters of
 the binding group after lambda lifting. The details of how to obtain it shall
 concern us in \cref{sec:trans}. These variables would need to be available
 anywhere a binder from the binding group occurs, which justifies the choice of
-$\{\overline{\idf}\}$ as the subscript argument to \cg.
+$\{\overline{\idg}\}$ as the subscript argument to \cg.
 
 Note that we logically lambda lifted the binding group in question without
-actually floating out the binding. The reasons for that are twofold: Firstly,
-the reductions in closure allocation resulting from that lift are accounted
-separately in the trailing sum expression, capturing the effects of \ref{s1}:
-We save closure allocation for each binding, consisting of the code pointer
-plus its free variables, excluding potential recursive occurrences.
-Secondly, the lifted binding group isn't affected by closure growth (where
-there are no free variables, nothing can grow or shrink), which is entirely a
-symptom of \ref{s3}.
+fixing up call sites, leading to a semantically broken program. The reasons for
+that are twofold: Firstly, the reductions in closure allocation resulting from
+that lift are accounted separately in the trailing sum expression, capturing
+the effects of \ref{s1}: We save closure allocation for each binding,
+consisting of the code pointer plus its free variables, excluding potential
+recursive occurrences. Secondly, the lifted binding group isn't affected by
+closure growth (where there are no free variables, nothing can grow or shrink),
+which is entirely a symptom of \ref{s3}. Hence, we capture any free variables
+of the binding group in lambdas.
 
-In practice, we require that this metric is non-positive to allow the lambda
-lift.
+Following \ref{h:alloc}, we require that this metric is non-positive to allow
+the lambda lift.
 
 \subsubsection{Implementation}
 
@@ -753,12 +756,14 @@ them down one layer at a time by delegating to one helper function per
 syntactic sort. This makes the |let| rule itself nicely compositional, because
 it delegates most of its logic to $\cgb$.
 
-\cgb is concerned measuring binding groups. The \growth component accounts for
-allocating each closure of the binding group. Whenever a closure mentions one
-of the variables to be removed (\ie $\removed$, the bindings to be lifted), we
-count the number of variables that are removed in $\nu$ and subtract them from
-the number of variables in $\added$ (\ie the required set of the binding group
-to lift) that didn't occur in the closure before.
+\cgb is concerned with measuring binding groups. Recall that added and removed
+set never overlap. The \growth component then accounts for allocating each
+closure of the binding group. Whenever a closure mentions one of the variables
+to be removed (\ie $\removed$, the binding group $\{\overline{g}\}$ to be
+lifted), we count the number of variables that are removed in $\nu$ and
+subtract them from the number of variables in $\added$ (\ie the required set of
+the binding group to lift $\absids'(g_1)$) that didn't occur in the closure
+before.
 
 The call to $\cgr$ accounts for closure growth of right-hand sides. The
 right-hand sides of a |let| binding might or might not be entered, so we cannot
@@ -803,7 +808,8 @@ straight-forward, but it's still worth showing how the transformation
 integrates the decision logic for which bindings are going to be lambda lifted.
 
 Central to the transformation is the construction of the minimal \emph{required
-set} of extraneous parameters \citep{optimal-lift} of a binding.
+set} of extraneous parameters $\absids(\idf)$ \citep{optimal-lift} of a binding
+$\idf$.
 
 As suggested in the introduction, we interleave pure lambda lifting with an
 inlining pass that immediately inlines the resulting partial applications.
@@ -812,14 +818,14 @@ It is assumed that all variables have unique names and that there is a
 sufficient supply of fresh names from which to draw. In \cref{fig:alg} we
 define a side-effecting function, \lift, recursively over the term structure.
 
-As its first argument, \lift takes an \expander, which is a partial function
-from lifted binders to their required sets. These are the additional variables
-we have to pass at call sites after lifting. The expander is extended every
-time we decide to lambda lift a binding, it plays a similar role as the $E_f$
-set in \citet{lam-lift}. We write $\dom{\absids}$ for the domain of the
-expander $\absids$ and $\absids[\idx \mapsto S]$ to denote extension of the
-expander function, so that the result maps $\idx$ to $S$ and all other
-identifiers by delegating to $\absids$.
+As its first argument, \lift takes an \expander $\absids$, which is a partial
+function from lifted binders to their required sets. These are the additional
+variables we have to pass at call sites after lifting. The expander is extended
+every time we decide to lambda lift a binding, it plays a similar role to the
+$E_f$ set in \citet{lam-lift}. We write $\dom{\absids}$ for the domain of
+$\absids$ and $\absids[\idx \mapsto S]$ to denote extension of the expander
+function, so that the result maps $\idx$ to $S$ and all other identifiers by
+delegating to $\absids$.
 
 The second argument is the expression that is to be lambda lifted. A call to
 \lift results in an expression that no longer contains any bindings that were
@@ -884,7 +890,7 @@ lambda lifting.
 \subsection{Applications}
 
 As discussed in \cref{para:arg} when motivating
-\ref{c1}, handling function application correctly is a little subtle. Consider
+\ref{h:argocc}, handling function application correctly is a little subtle. Consider
 what happens when we try to lambda lift |f| in an application like |g f x|:
 Changing the variable occurrence of |f| to an application would be invalid
 because the first argument in the application to |g| would no longer be a
@@ -892,7 +898,7 @@ variable. Inlining the partial application fails, so lambda lifting |f| is
 hardly of any use.
 
 Our transformation enjoys a great deal of simplicity because it crucially
-relies on the adherence to \ref{c1}, so that inlining the partial application
+relies on the adherence to \ref{h:argocc}, so that inlining the partial application
 of |f| will always succeed.
 
 \subsection{Let Bindings}
@@ -929,10 +935,10 @@ right-hand sides of the bindings.
 \subsection{Regarding Optimality}
 \label{ssec:opt}
 
-\Citet{lam-lift} constructed the required set of free variables for each binding by
-computing the smallest solution of a system of set inequalities. Although this
-runs in $\mathcal{O}(n^3)$ time, there were several attempts to achieve its
-optimality wrt. the minimal size of the required sets with better
+\Citet{lam-lift} constructed the set of extraneuous parameters for each binding
+by computing the smallest solution of a system of set inequalities. Although
+this runs in $\mathcal{O}(n^3)$ time, there were several attempts to achieve
+its optimality wrt. the minimal size of the required sets with better
 asymptotics. As such, \citet{optimal-lift} were the first to present an
 algorithm that simultaneously has optimal runtime in $\mathcal{O}(n^2)$ and
 computes minimal required sets.
@@ -1047,17 +1053,25 @@ The results of comparing our chosen configuration with the baseline can be seen
 in \cref{tbl:ll}.
 
 It shows that there was no benchmark that increased in heap allocations, for a
-total reduction of 0.9\%. On the other hand that's hardly surprising, since we
-designed our analysis to be conservative with respect to allocations and the
-transformation turns heap allocation into possible register and stack
-allocation, which is not reflected in any numbers.
+total reduction of 0.9\%. This proves we succeeded in designing our analysis to
+be conservative with respect to allocations: Our transformation turns heap
+allocation into possible register and stack allocation without a single
+regression.
 
-It's more informative to look at runtime measurements, where a total reduction
-of 0.7\% was achieved. Although exploiting the correlation with closure growth
+Turning our attnetion to runtime measurements, we see that a total reduction of
+0.7\% was achieved. Although exploiting the correlation with closure growth
 payed off, it seems that the biggest wins in allocations don't necessarily lead
 to big wins in runtime: Allocations of \texttt{n-body} were reduced by 20.2\%
-while runtime was barely affected. Conversely, allocations of \texttt{lambda}
-hardly changed, yet it sped up considerably.
+while runtime was barely affected. However, at a few hundred kilobytes,
+\texttt{n-body} is effectively non-allocating anyway. The reductions seem to
+hide somewhere in the \texttt{base} library. Conversely, allocations of
+\texttt{lambda} hardly changed, yet it sped up considerably.
+
+In \texttt{queens}, 18\% less allocations did only lead to a mediocre 0.5\%.
+A local function closing over three variables was lifted out of a hot loop to
+great effect on allocations, barely affecting runtime. We believe this is due
+to the native code generator of GHC, because when compiling with the LLVM
+backend we measured speedups of roughly 5\%.
 
 \begin{table}
   \centering
