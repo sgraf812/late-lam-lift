@@ -170,7 +170,7 @@
 
 \begin{abstract}
 Lambda lifting is a well-known transformation, traditionally employed for
-compiling functional programs to supercombinators . However, more recent
+compiling functional programs to supercombinators. However, more recent
 abstract machines for functional languages like OCaml and Haskell tend to do
 closure conversion instead for direct access to the environment, so lambda
 lifting is no longer necessary to generate machine code.
@@ -1338,21 +1338,19 @@ their shortcomings.
 
 Operationally, an STG function is supplied a pointer to its closure as the
 first argument. This closure pointer is similar to how object-oriented
-languages tend to implement the \texttt{this} pointer. References to free
-variables are resolved indirectly through the closure pointer, mimicing access
-of a heap-allocated record. From this perspective, every function in the
-program already is a supercombinator, taking an implicit first parameter. In
-this world, lambda lifting STG terms looks more like an \emph{unpacking} of the
-closure record into multiple arguments, similar to performing Scalar
-Replacement \citep{scalar-replacement} on the \texttt{this} parameter or
-what the worker-wrapper transformation \citep{ww} achieves. The situation
-is a little different to performing the worker-wrapper split in that there's no
-need for strictness or usage analysis to be involved. Similar to type class
-dictionaries, there's no divergence hiding in closure records. At the same
-time, closure records are defined with the sole purpose to carry all free
-variables for a particular function. A prior free variable analysis guarantees
-that the closure record will only contain free variables that are actually used
-in the body of the function.
+languages tend to implement the \texttt{this} pointer. From this perspective,
+every function in the program already is a supercombinator, taking an implicit
+first parameter. In this world, lambda lifting STG terms looks more like an
+\emph{unpacking} of the closure record into multiple arguments, similar to
+performing Scalar Replacement \citep{scalar-replacement} on the \texttt{this}
+parameter or what the worker-wrapper transformation \citep{ww} achieves. The
+situation is a little different to performing the worker-wrapper split in that
+there's no need for strictness or usage analysis to be involved. Similar to
+type class dictionaries, there's no divergence hiding in closure records. At
+the same time, closure records are defined with the sole purpose to carry all
+free variables for a particular function, hence a prior free variable analysis
+guarantees that the closure record will only contain free variables that are
+actually used in the body of the function.
 
 \citet{stg} anticipates the effects of lambda lifting in the context of the
 STG machine, which performs closure conversion for code generation. He comes to
