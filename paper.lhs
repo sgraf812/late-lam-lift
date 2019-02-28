@@ -1424,6 +1424,13 @@ execution frequency \citep{static-prof} could help here. Such static profiles
 would be convenient in a number of places, for example in the inliner or to
 determine viability of exploiting a costly optimisation opportunity.
 
+We find there's a lack of substantiated performance comparisons of closure
+conversion to lambda lifting for code generation on modern machine
+architectures. It seems lambda lifting has fallen out of fashion: GHC and the
+OCaml compiler both seem to do closure conversion. The compiler for the lean
+theorem proving language makes use of lambda lifting, but it's unclear if this
+is just for its conceptual simplicity.
+
 \section{Conclusion}
 
 We presented the combination of lambda lifting with an inlining pass for
