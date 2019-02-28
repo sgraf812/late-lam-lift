@@ -59,7 +59,7 @@
 \usepackage{csquotes}
 \hypersetup{%
   pdfauthor={Sebastian Graf},
-  pdftitle={Lucrative Late Lambda Lifting},
+  pdftitle={Selective Lambda Lifting},
   hidelinks=true,
 }
 \usepackage{mdframed}
@@ -155,7 +155,7 @@
 
 \begin{document}
 
-\title{Lucrative Late Lambda Lifting}
+\title{Selective Lambda Lifting}
 
 \author{Sebastian Graf}
 \affiliation{%
