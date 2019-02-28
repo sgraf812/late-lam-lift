@@ -1032,13 +1032,13 @@ result from a positive lifting decision $\liftb_{\absids'}(bs)$. This makes
 sure that each syntactic element is only traversed once.
 
 How does $\absids'$ extend $\absids$? By calling out to $\addrqs$ in its
-definition, it will also map the current binding group $bs$ to its required
-set. Note that all bindings in the same binding group share their required set.
-The required set is the union of the free variables of all bindings, where
-lifted binders are expanded by looking into $\absids$, minus binders of the
-binding group itself. This is a conservative choice for the required set, but
-we argue for the minimality of this approach in the context of GHC in
-\cref{ssec:opt}.
+definition, it will also map every binding of the current binding group $bs$ to
+its required set. Note that all bindings in the same binding group share their
+required set. The required set is the union of the free variables of all
+bindings, where lifted binders are expanded by looking into $\absids$, minus
+binders of the binding group itself. This is a conservative choice for the
+required set, but we argue for the minimality of this approach in the context
+of GHC in \cref{ssec:opt}.
 
 With the domain of $\absids'$ containing $bs$, every definition looking into
 that map implicitly assumes that $bs$ is to be lifted. So it makes sense that
@@ -1198,7 +1198,7 @@ be conservative with respect to allocations: Our transformation turns heap
 allocation into possible register and stack allocation without a single
 regression.
 
-Turning our attnetion to runtime measurements, we see that a total reduction of
+Turning our attention to runtime measurements, we see that a total reduction of
 0.7\% was achieved. Although exploiting the correlation with closure growth
 payed off, it seems that the biggest wins in allocations don't necessarily lead
 to big wins in runtime: Allocations of \texttt{n-body} were reduced by 20.2\%
@@ -1355,7 +1355,7 @@ runs in $\mathcal{O}(n^3)$ time, there were several attempts to achieve its
 optimality (wrt. the minimal size of the required sets) with better
 asymptotics. As such, \citet{optimal-lift} were the first to present an
 algorithm that simultaneously has optimal runtime in $\mathcal{O}(n^2)$ and
-computes minimal required sets. We compare in \cref{ssec:opt} to their
+computes minimal required sets. In \cref{ssec:opt} we compare to their
 approach. They also give a nice overview over previous approaches and highlight
 their shortcomings.
 
@@ -1373,9 +1373,9 @@ is a little different to performing the worker-wrapper split in that there's no
 need for strictness or usage analysis to be involved. Similar to type class
 dictionaries, there's no divergence hiding in closure records. At the same
 time, closure records are defined with the sole purpose to carry all free
-variables for a particular function and a prior free variable analysis
-guarantees that the closure record will only contain free variables that are
-actually used in the body of the function.
+variables for a particular function. A prior free variable analysis guarantees
+that the closure record will only contain free variables that are actually used
+in the body of the function.
 
 \citet{stg} anticipates the effects of lambda lifting in the context of the
 STG machine, which performs closure conversion for code generation. Without the
@@ -1426,7 +1426,7 @@ determine viability of exploiting a costly optimisation opportunity.
 We find there's a lack of substantiated performance comparisons of closure
 conversion to lambda lifting for code generation on modern machine
 architectures. It seems lambda lifting has fallen out of fashion: GHC and the
-OCaml compiler both seem to do closure conversion. The compiler for the lean
+OCaml compiler both seem to do closure conversion. The compiler for the Lean
 theorem proving language makes use of lambda lifting, but it's unclear if this
 is just for its conceptual simplicity.
 
