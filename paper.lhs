@@ -1072,7 +1072,7 @@ sets are minimal: Because by the time our lambda lifter runs, the occurrence
 analyser will have rearranged recursive groups into strongly connected
 components with respect to the call graph, up to lexical scoping. Now consider
 a variable $\idx \in \absids(\idf_i)$ in the required set of a |let| binding
-for the binding group $\overline{\idf_i}$. We'll look into two cases, depending
+for the binding group $\overline{\idf}$. We'll look into two cases, depending
 on whether $\idx$ occurs free in any of the binding group's RHSs or not.
 
 Assume that $\idx \notin \fvs(\idf_j)$ for every $j$. Then $\idx$ must have
