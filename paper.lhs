@@ -244,8 +244,7 @@ The Glasgow Haskell Compiler (GHC) chooses to do closure conversion
 \emph{static} closure for |f| with an empty environment and \emph{dynamic}
 closure for |g| with an environment on the heap, containing an entry for |a|.
 
-Now imagine we lambda lifted |g| before closure conversion happens and
-immediately inline the residual partial application:
+Now imagine we lambda lifted |g| before closure conversion:
 
 \begin{code}
 g_up a 0 = a
@@ -294,12 +293,12 @@ f a b 1 = b
 f a b n = f (g_up a b n) a (n `mod` 2)
 \end{code}
 
-The closure for |g| is gone, but |h| now closes over |a| and |b| instead of
-|g|\footnote{There's no need to close over a static closure like |g_up|.}.
-Worse, for a single allocation of |g|'s closure environment, we get |n|
-additional allocations of |h|'s closure environment on the recursive code path!
-Apart from making |f| allocate 10\% more, this also incurs a slowdown of more
-than 10\%.
+The closure for |g| is gone, but |h| now closes over |n|, |a| and |b| instead
+of |n| and |g|\footnote{There's no need to close over a static closure like
+|g_up|.}. Worse, for a single allocation of |g|'s closure environment, we get
+two additional allocations of |h|'s closure environment on the recursive code
+path! Apart from making |f| allocate 10\% more, this also incurs a slowdown of
+more than 10\%.
 
 This work is concerned with finding out when doing this transformation is
 beneficial to performance, providing a new angle on the interaction between
@@ -433,11 +432,11 @@ closure\footnote{Note that the pair and the |EnvF| can and will be combined
 into a single heap object in practice.}.
 
 Compare this to how \emph{lambda lifting} gets rid of local functions.
-\Citet{lam-lift} introduced this for efficient code generation of lazy
+\Citet{lam-lift} introduced it for efficient code generation of lazy
 functional languages to G-machine code \citep{g-machine}. Lambda lifting
 converts all free variables of a function body into parameters. The resulting
-function bodies can be floated to top-level, leaving a residual partial
-application at the original definition site:
+function body can be floated to top-level, but all call sites must be fixed up
+to include its former free variables.
 
 \begin{minipage}{0.45\textwidth}
 \begin{code}
@@ -451,36 +450,23 @@ $\xRightarrow{\text{LL }\idf}$
 \begin{minipage}{0.45\textwidth}
 \begin{code}
 f_up x y a b = ... x ... y ...;
-let f = f_up x y
-in f 4 2
-\end{code}
-\end{minipage}
-
-Similar to the situation after closure conversion, the partial application
-leads to heap allocation. The only immediate difference between the two forms
-is that the closure environment is passed by reference after closure
-conversion, but as individual components (\ie by value) in the lambda lifting
-case.
-
-The key difference is that the latter form opens the possiblity to inline the
-partial application, getting rid of the heap allocation altogether:
-
-\begin{code}
-f_up x y a b = ... x ... y ...;
 f_up x y 4 2
 \end{code}
+\end{minipage}
+\begin{code}
+\end{code}
 
-The resulting program is invariant under closure
-conversion\footnote{Disregarding allocation of static closures.}. Earlier we
-saw examples where doing this transformation does more harm than good. If we
-identified them, we still could leave closure conversion something to chew on.
+The key difference to closure conversion is that there is no heap allocation at
+|f|'s former definition site anymore. But earlier we saw examples where doing
+this transformation does more harm than good. The plan is to transform
+worthwhile cases with lambda lifting and leave the rest to closure conversion.
 
 \section{When to lift}
 
 \label{sec:analysis}
 
-Lambda lifting and inlining are always sound transformations. The challenge is
-in identifying \emph{when} it is beneficial to apply them. This section will
+Lambda lifting is always a sound transformation. The challenge is in
+identifying \emph{when} it is beneficial to apply it. This section will
 discuss operational consequences of our lambda lifting pass, clearing up the
 requirements for our transformation defined in \cref{sec:trans}. Operational
 considerations will lead to the introduction of multiple criteria for rejecting
@@ -489,8 +475,7 @@ a lift, motivating a cost model for estimating impact on heap allocations.
 \subsection{Syntactic consequences}
 
 Deciding to lambda lift a binding |let f = \a b c -> e in e'| where |x| and |y|
-occur free in |e|, followed by inlining the residual partial application, has
-the following consequences:
+occur free in |e|, has the following consequences:
 
 \begin{enumerate}[label=\textbf{(S\arabic*)},ref=(S\arabic*)]
   \item \label{s1} It replaces the |let| expression by its body.
@@ -795,8 +780,7 @@ we were to decide whether to lift the binding group $\overline{\idg}$ out of an
 expression $\mkLetr{\idg}{\overline{\idx}}{\ide}{\ide'}$\footnote{We only ever
 lift a binding group wholly or not at all, due to \ref{h:known} and
 \ref{h:argocc}.}, the following expression conservatively estimates the effect
-on heap allocation of performing the lift\footnote{The effect of inlining the
-partial applications resulting from vanilla lambda lifting, to be precise.}:
+on heap allocation of performing the lift:
 \[
 \cg^{\absids'(\idg_1)}_{\{\overline{\idg}\}}(\mkLetr{\idg}{\absids'(\idg_1)\,\overline{\idx}}{\ide}{\ide'}) - \sum_i 1 + \card{\fvs(\idg_i)\setminus \{\overline{\idg}\}}
 \]
@@ -931,9 +915,6 @@ Central to the transformation is the construction of the minimal \emph{required
 set} of extraneous parameters $\absids(\idf)$ \citep{optimal-lift} of a binding
 $\idf$.
 
-As suggested in the introduction, we interleave pure lambda lifting with an
-inlining pass that immediately inlines the resulting partial applications.
-
 It is assumed that all variables have unique names and that there is a
 sufficient supply of fresh names from which to draw. In \cref{fig:alg} we
 define a side-effecting function, \lift, recursively over the term structure.
@@ -1003,9 +984,7 @@ where\hspace{8em}\\
 
 In the variable case, we check if the variable was lifted
 to top-level by looking it up in the supplied expander mapping $\absids$ and if
-so, we apply it to its newly required extraneous parameters. Notice that this
-has the effect of inlining the partial application that would arise in vanilla
-lambda lifting.
+so, we apply it to its newly required extraneous parameters.
 
 \subsection{Applications}
 
@@ -1014,12 +993,11 @@ As discussed in \cref{para:arg} when motivating
 what happens when we try to lambda lift |f| in an application like |g f x|:
 Changing the variable occurrence of |f| to an application would be invalid
 because the first argument in the application to |g| would no longer be a
-variable. Inlining the partial application fails, so lambda lifting |f| is
-hardly of any use.
+variable.
 
 Our transformation enjoys a great deal of simplicity because it crucially
-relies on the adherence to \ref{h:argocc}, so that inlining the partial application
-of |f| will always succeed.
+relies on the adherence to \ref{h:argocc}, meaning we never have to think about
+wrapping call sites in partial applications binding the complex arguments.
 
 \subsection{Let Bindings}
 
@@ -1344,10 +1322,9 @@ convention on AMD64 was a good call.
 \subsection{Related Work}
 
 \citet{lam-lift} was the first to conceive lambda lifting as a code
-generation scheme for functional languages. As explained in \cref{sec:trans},
-we deviate from the original transformation in that we interleave an inlining
-pass for the residual partial applications and regard this interleaving as an
-optimisation pass by only applying it selectively.
+generation scheme for functional languages. We deviate from the original
+transformation in that we regard it as an optimisation pass by only applying it
+selectively.
 
 Johnsson's constructed the required set of free variables for each binding by
 computing the smallest solution of a system of set inequalities. Although this
@@ -1378,11 +1355,9 @@ that the closure record will only contain free variables that are actually used
 in the body of the function.
 
 \citet{stg} anticipates the effects of lambda lifting in the context of the
-STG machine, which performs closure conversion for code generation. Without the
-subsequent step which inlines the partial application, he comes to the
-conclusion that direct accesses into the environment from the function body
-result in less movement of values from heap to stack. Our approach however
-inlines the partial application to get rid of heap accesses altogether.
+STG machine, which performs closure conversion for code generation. He comes to
+the conclusion that direct accesses into the environment from the function body
+result in less movement of values from heap to stack.
 
 The idea of regarding lambda lifting as an optimisation is not novel.
 \citet{lam-lift-opt} motivates selective lambda lifting in the context of
@@ -1415,13 +1390,13 @@ exploited. Other than that, SAT turns unknown into known calls, but in
 \subsection{Future Work}
 
 In \cref{sec:eval} we concluded that our closure growth heuristic was too
-conservative. In general, lambda lifting STG terms and then inlining residual
-partial applications pushes allocations from definition sites into any closures
-that nest around call sites. If only closures on cold code paths grow, doing
-the lift could be beneficial. Weighting closure growth by an estimate of
-execution frequency \citep{static-prof} could help here. Such static profiles
-would be convenient in a number of places, for example in the inliner or to
-determine viability of exploiting a costly optimisation opportunity.
+conservative. In general, lambda lifting STG terms pushes allocations from
+definition sites into any closures that nest around call sites. If only
+closures on cold code paths grow, doing the lift could be beneficial. Weighting
+closure growth by an estimate of execution frequency \citep{static-prof} could
+help here. Such static profiles would be convenient in a number of places, for
+example in the inliner or to determine viability of exploiting a costly
+optimisation opportunity.
 
 We find there's a lack of substantiated performance comparisons of closure
 conversion to lambda lifting for code generation on modern machine
@@ -1432,14 +1407,13 @@ is just for its conceptual simplicity.
 
 \section{Conclusion}
 
-We presented the combination of lambda lifting with an inlining pass for
-residual partial applications as an optimisation on STG terms and provided an
-implementation in the Glasgow Haskell Compiler. The heuristics that decide when
-to reject a lifting opportunity were derived from concrete operational
-considerations. We assessed the effectiveness of this evidence-based approach on
-a large corpus of Haskell benchmarks and concluded that average Haskell
-programs sped up by 0.7\% in the geometric mean and reliably reduced the number
-of allocations.
+We presented the selective lambda lifting as an optimisation on STG terms and
+provided an implementation in the Glasgow Haskell Compiler. The heuristics that
+decide when to reject a lifting opportunity were derived from concrete
+operational considerations. We assessed the effectiveness of this
+evidence-based approach on a large corpus of Haskell benchmarks and concluded
+that average Haskell programs sped up by 0.7\% in the geometric mean and
+reliably reduced the number of allocations.
 
 One of our main contributions was a conservative estimate of closure growth
 resulting from a lifting decision. Although prohibiting any closure growth
