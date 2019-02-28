@@ -798,7 +798,7 @@ lift a binding group wholly or not at all, due to \ref{h:known} and
 on heap allocation of performing the lift\footnote{The effect of inlining the
 partial applications resulting from vanilla lambda lifting, to be precise.}:
 \[
-\cg^{\absids'(\idg_1)}_{\{\overline{\idg}\}}(\mkLetr{\idg}{\absids'(\idg_1)\,\overline{\idx}}{\ide}{\ide'}) - \sum_i 1 + \card{\fvs(\idg_i)\setminus \{\overline{\idg}\}}
+\cg^{\absids'(\idg_1)}_{\{\overline{\idg}\}}(\mkLetr{\idg}{\absids'(\idg)\,\overline{\idx}}{\ide}{\ide'}) - \sum_i 1 + \card{\fvs(\idg_i)\setminus \{\overline{\idg}\}}
 \]
 
 The \emph{required set} of extraneous parameters \citep{optimal-lift}
