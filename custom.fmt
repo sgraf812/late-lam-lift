@@ -6,7 +6,9 @@
 
 % first some stuff specific to this paper
 %format up = "\uparrow"
+%format clo = "\star"
 %format f_up
+%format f_clo
 %format g_up
 %format g2_up
 %format mapF_up

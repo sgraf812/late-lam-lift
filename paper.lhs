@@ -225,27 +225,8 @@ benchmarks suggest modest speedups.
 \section{Introduction}
 
 The ability to define nested auxiliary functions referencing variables from
-outer scopes is essential when programming in functional languages. Compilers
-had to generate efficient code for such functions since the dawn of Scheme.
-
-\Citet{lam-lift} advocated \emph{lambda lifting} for efficient code generation
-of lazy functional languages to G-machine code \citep{g-machine}. Lambda
-lifting converts all free variables of a function body into parameters. The
-resulting functions are insensitive to lexical scope and can be floated to
-top-level and serve as supercombinators in Johnsson's compilation scheme.
-
-An alternative to lambda lifting is \emph{closure conversion}, where references
-to free variables are lowered as field accesses on a record containing all free
-variables of the function, the \emph{closure environment}, passed as an
-implicit parameter to the function body. All lowered functions are then
-regarded as \emph{closures}: A pair of a code pointer and an environment.
-
-Current abstract machines for functional programming languages such as the
-spineless tagless G-machine \citep{stg} choose to do closure conversion
-instead of lambda lifting for code generation. Although lambda lifting seems to
-have fallen out of fashion, we argue that it bears potential as an optimisation
-pass prior to closure conversion. Take this (completely contrived) Haskell code
-as an example:
+outer scopes is essential when programming in functional languages. Take this
+Haskell function as an example:
 
 \begin{code}
 f a 0 = a
@@ -255,29 +236,16 @@ f a n = f (g (n `mod` 2)) (n-1)
     g n = 1 + g (n-1)
 \end{code}
 
-Closure conversion would allocate two closures: A \emph{static} closure for |f|
-with an empty environment and \emph{dynamic} closure for |g| with an
-environment on the heap, containing an entry for |a|. Now imagine we lambda
-lift |g| before that happens:
+To generate code for nested functions like |g|, a typical compiler either
+applies lambda lifting or closure conversion.
 
-\begin{code}
-g_up a 0 = a
-g_up a n = 1 + g_up a (n-1)
+The Glasgow Haskell Compiler (GHC) chooses to do closure conversion
+\citep{stg}. In doing so, it allocates two closures for the program above: A
+\emph{static} closure for |f| with an empty environment and \emph{dynamic}
+closure for |g| with an environment on the heap, containing an entry for |a|.
 
-f a 0 = a
-f a n = f (g (n `mod` 2)) (n-1)
-  where
-    g = g_up a
-\end{code}
-
-Note that closure conversion would still allocate static closures for |f| and
-additionally for |g_up| here. These don't concern us in the rest of this paper,
-as they are only allocated once and don't contribute to heap allocations.
-
-Other than that, there will still be the same heap allocations due to the
-closure environment for |g|. Lambda lifting just separated closure allocation
-from the function body |g_up|. Suppose now that the partial application |g|
-gets inlined:
+Now imagine we lambda lifted |g| before closure conversion happens and
+immediately inline the residual partial application:
 
 \begin{code}
 g_up a 0 = a
@@ -289,13 +257,13 @@ f a n = f (g_up a (n `mod` 2)) (n-1)
 
 The closure for |g| and the associated heap allocation completely vanished in
 favour of a few more arguments at the call site! The result looks much simpler.
-And indeed, in concert with the other optimisations within the Glasgow Haskell
-Compiler (GHC), the above transformation makes |f|
-non-allocating\footnote{Implicitly ignoring runtime and static closure
-allocations, as for the rest of this paper.}, resulting in a speedup of 50\%.
+And indeed, in concert with the other optimisations within GHC, the above
+transformation makes |f| non-allocating\footnote{Implicitly ignoring runtime
+and static closure allocations, as for the rest of this paper.}, resulting in a
+speedup of 50\%.
 
-So should we just perform this transformation on any candidate? We are inclined
-to disagree. Consider what would happen to the following program:
+So should we just perform this transformation on any candidate? We have to
+disagree. Consider what would happen to the following program:
 
 \begin{code}
 f :: [Int] -> [Int] -> Int -> Int
@@ -338,24 +306,36 @@ beneficial to performance, providing a new angle on the interaction between
 lambda lifting and closure conversion. These are our contributions:
 
 \begin{itemize}
-\item We describe a selective lambda lifting pass that maintains the invariants
-associated with the STG language \citep{stg} (\cref{sec:trans}).
-\item A number of heuristics fueling the lifting decision are derived from
-concrete operational deficiencies in \cref{sec:analysis}. We provide a static
+\item We derive a number of heuristics fueling the lambda lifting decision from
+concrete operational deficiencies in \cref{sec:analysis}.
+\item Integral to one of the heuristics, in \cref{ssec:cg} we provide a static
 analysis estimating \emph{closure growth}, conservatively approximating the
 effects of a lifting decision on the total allocations of the program.
-\item We implemented our lambda lifting pass in the Glasgow Haskell Compiler
-as part of its STG pipeline. The decision to do lambda lifting this late
-in the compilation pipeline is a natural one, given that accurate allocation
-estimates aren't easily possible on GHC's more high-level Core language. We
-evaluate our pass against the \texttt{nofib} benchmark suite (\cref{sec:eval})
-and find that our static analysis soundly predicts changes in heap allocations.
+\item We implemented our lambda lifting pass in the Glasgow Haskell Compiler as
+part of its optimisation pipeline, operating on its Spineless Tagless G-machine
+(STG) language. The decision to do lambda lifting this late in the compilation
+pipeline is a natural one, given that accurate allocation estimates aren't
+easily possible on GHC's more high-level Core language.
+\item We evaluate our pass against the \texttt{nofib} benchmark suite
+(\cref{sec:eval}) and find that our static analysis soundly predicts changes in
+heap allocations. The measurements confirm the reasoning behind our heuristics
+in \cref{sec:analysis}.
 \end{itemize}
 
 Our approach builds on and is similar to many previous works, which we compare
 to in \cref{sec:relfut}.
 
-\section{Language}
+\section{Operational Background}
+
+Typically, the choice between lambda lifting and closure conversion for code
+generation is mutually exclusive and is dictated by the targeted abstract
+machine, like the G-machine \citep{g-machine} or the Spineless Tagless
+G-machine \citep{stg}, as is the case for GHC.
+
+Let's clear up what we mean by doing lambda lifting before closure conversion
+and the operational effect of doing so.
+
+\subsection{Language}
 
 Although the STG language is tiny compared to typical surface languages such as
 Haskell, its definition \citep{fastcurry} still contains much detail
@@ -363,7 +343,7 @@ irrelevant to lambda lifting. This section will therefore introduce an untyped
 lambda calculus that will serve as the subject of optimisation in the rest
 of the paper.
 
-\subsection{Syntax}
+\subsubsection{Syntax}
 
 As can be seen in \cref{fig:syntax}, we extended untyped lambda calculus with
 |let| bindings, just as in \citet{lam-lift}. Inspired by STG, we also assume
@@ -399,7 +379,7 @@ the details if need be.
 \label{fig:syntax}
 \end{figure}
 
-\subsection{Semantics}
+\subsubsection{Semantics}
 
 Since our calculus is a subset of the STG language, its semantics follows
 directly from \citet{fastcurry}.
@@ -414,6 +394,86 @@ intermediate partial applications resulting from over- or undersaturated calls.
 Put plainly: If we manage to get rid of a |let| binding, we get rid of one
 source of heap allocation since there is no closure to allocate during closure
 conversion.
+
+\subsection{Lambda lifting \vs Closure conversion}
+
+The trouble with nested functions is that nobody has come up with concrete,
+efficient computing architectures that can cope with them natively. Compilers
+therefore need to rewrite local functions in terms of global definitions and
+auxiliary heap allocations.
+
+One way of doing so is in performing \emph{closure conversion}, where
+references to free variables are lowered as field accesses on a record
+containing all free variables of the function, the \emph{closure environment}.
+The environment is passed as an implicit parameter to the function body, which
+in turns is insensitive to lexical scope and can be floated to top-level. After
+this lowering, all functions are then regarded as \emph{closures}: A pair of a
+code pointer and an environment.
+
+\begin{minipage}{0.45\textwidth}
+\begin{code}
+let f = \a b -> ... x ... y ...
+in f 4 2
+\end{code}
+\end{minipage}%
+\begin{minipage}{0.1\textwidth}
+$\xRightarrow{\text{CC }\idf}$
+\end{minipage}%
+\begin{minipage}{0.45\textwidth}
+\begin{code}
+data EnvF = EnvF { x :: Int, y :: Int }
+f_clo env a b = ... x env ... y env ...;
+let f = (f_clo, EnvF x y)
+in (fst f) (snd f) 4 2
+\end{code}
+\end{minipage}
+
+Closure conversion leaves behind a heap-allocated |let| binding for the
+closure\footnote{Note that the pair and the |EnvF| can and will be combined
+into a single heap object in practice.}.
+
+Compare this to how \emph{lambda lifting} gets rid of local functions.
+\Citet{lam-lift} introduced this for efficient code generation of lazy
+functional languages to G-machine code \citep{g-machine}. Lambda lifting
+converts all free variables of a function body into parameters. The resulting
+function bodies can be floated to top-level, leaving a residual partial
+application at the original definition site:
+
+\begin{minipage}{0.45\textwidth}
+\begin{code}
+let f = \a b -> ... x ... y ...
+in f 4 2
+\end{code}
+\end{minipage}%
+\begin{minipage}{0.1\textwidth}
+$\xRightarrow{\text{LL }\idf}$
+\end{minipage}%
+\begin{minipage}{0.45\textwidth}
+\begin{code}
+f_up x y a b = ... x ... y ...;
+let f = f_up x y
+in f 4 2
+\end{code}
+\end{minipage}
+
+Similar to the situation after closure conversion, the partial application
+leads to heap allocation. The only immediate difference between the two forms
+is that the closure environment is passed by reference after closure
+conversion, but as individual components (\ie by value) in the lambda lifting
+case.
+
+The key difference is that the latter form opens the possiblity to inline the
+partial application, getting rid of the heap allocation altogether:
+
+\begin{code}
+f_up x y a b = ... x ... y ...;
+f_up x y 4 2
+\end{code}
+
+The resulting program is invariant under closure
+conversion\footnote{Disregarding allocation of static closures.}. Earlier we
+saw examples where doing this transformation does more harm than good. If we
+identified them, we still could leave closure conversion something to chew on.
 
 \section{When to lift}
 
@@ -487,7 +547,7 @@ in g 5
 \end{code}
 \end{minipage}%
 \begin{minipage}{0.1\textwidth}
-$\xRightarrow{\text{lift} \idf}$
+$\xRightarrow{\text{lift }\idf}$
 \end{minipage}%
 \begin{minipage}{0.45\textwidth}
 \begin{code}
@@ -545,7 +605,7 @@ in mapF [1..n]
 \end{code}
 \end{minipage}%
 \begin{minipage}{0.1\textwidth}
-$\xRightarrow{\text{lift} \id{mapF}}$
+$\xRightarrow{\text{lift }\id{mapF}}$
 \end{minipage}%
 \begin{minipage}{0.45\textwidth}
 \begin{code}
@@ -581,7 +641,7 @@ in map addT [1..n]
 \end{code}
 \end{minipage}%
 \begin{minipage}{0.1\textwidth}
-$\xRightarrow{\text{lift} \id{t}}$
+$\xRightarrow{\text{lift }\id{t}}$
 \end{minipage}%
 \begin{minipage}{0.45\textwidth}
 \begin{code}
@@ -621,7 +681,7 @@ in g 5
 \end{code}
 \end{minipage}%
 \begin{minipage}{0.1\textwidth}
-$\xRightarrow{\text{lift} \idf}$
+$\xRightarrow{\text{lift }\idf}$
 \end{minipage}%
 \begin{minipage}{0.45\textwidth}
 \begin{code}
@@ -653,7 +713,7 @@ in g 1 + g 2 + g 3
 \end{code}
 \end{minipage}%
 \begin{minipage}{0.1\textwidth}
-$\xRightarrow{\text{lift} \idf}$
+$\xRightarrow{\text{lift }\idf}$
 \end{minipage}%
 \begin{minipage}{0.45\textwidth}
 \begin{code}
@@ -688,7 +748,7 @@ in g 1 + g 2 + g 3
 \end{code}
 \end{minipage}%
 \begin{minipage}{0.1\textwidth}
-$\xRightarrow{\text{lift} \idf}$
+$\xRightarrow{\text{lift }\idf}$
 \end{minipage}%
 \begin{minipage}{0.45\textwidth}
 \begin{code}
