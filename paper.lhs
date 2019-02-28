@@ -308,7 +308,7 @@ lambda lifting and closure conversion. These are our contributions:
 \begin{itemize}
 \item We derive a number of heuristics fueling the lambda lifting decision from
 concrete operational deficiencies in \cref{sec:analysis}.
-\item Integral to one of the heuristics, in \cref{ssec:cg} we provide a static
+\item Integral to one of the heuristics, in \cref{sec:cg} we provide a static
 analysis estimating \emph{closure growth}, conservatively approximating the
 effects of a lifting decision on the total allocations of the program.
 \item We implemented our lambda lifting pass in the Glasgow Haskell Compiler as
@@ -575,7 +575,7 @@ applications that are allocated when GHC spots an undersaturated call to a
 known function.
 
 Estimation of closure growth is crucial to achieving predictable results. We
-discuss this further in \cref{ssec:cg}.
+discuss this further in \cref{sec:cg}.
 
 \paragraph{Calling Convention.} \ref{s4} means that more arguments have to be
 passed. Depending on the target architecture, this entails more stack accesses
@@ -662,14 +662,14 @@ sharing, thus possibly duplicating work in each call to the lifted binding.
   \item Don't lift a binding that is updatable or a constructor application
 \end{introducecrit}
 
-\subsection{Estimating Closure Growth}
-\label{ssec:cg}
+\section{Estimating Closure Growth}
+\label{sec:cg}
 
 Of the criterions above, \ref{h:alloc} is quite important for predictable
 performance gains. It's also the most sophisticated, because it entails
 estimating closure growth.
 
-\subsubsection{Motivation}
+\subsection{Motivation}
 
 Let's revisit the example from above:
 
@@ -769,11 +769,10 @@ The solution is to denote closure growth in the (not quite max-plus) algebra
 $\zinf = \mathbb{Z} \cup \{\infty\}$ and account for positive closure growth
 under a multi-shot lambda by $\infty$.
 
-\subsubsection{Design}
+\subsection{Design}
 
 Applied to our simple STG language, we can define a function $\cg$ (short for
 closure growth) with the following signature:
-
 \[
 \cg^{\,\mathunderscore}_{\,\mathunderscore}(\mathunderscore) \colon \mathcal{P}(\var) \to \mathcal{P}(\var) \to \expr \to \zinf
 \]
@@ -798,9 +797,9 @@ lift a binding group wholly or not at all, due to \ref{h:known} and
 \ref{h:argocc}.}, the following expression conservatively estimates the effect
 on heap allocation of performing the lift\footnote{The effect of inlining the
 partial applications resulting from vanilla lambda lifting, to be precise.}:
-
 \[
-\cg^{\absids'(\idg_1)}_{\{\overline{\idg}\}}(\mkLetr{\idg}{\absids'(\idg_1)\,\overline{\idx}}{\ide}{\ide'}) - \sum_i 1 + \card{\fvs(\idg_i)\setminus \{\overline{\idg}\}} \]
+\cg^{\absids'(\idg_1)}_{\{\overline{\idg}\}}(\mkLetr{\idg}{\absids'(\idg_1)\,\overline{\idx}}{\ide}{\ide'}) - \sum_i 1 + \card{\fvs(\idg_i)\setminus \{\overline{\idg}\}}
+\]
 
 The \emph{required set} of extraneous parameters \citep{optimal-lift}
 $\absids'(\idg_1)$ for the binding group contains the additional parameters of
@@ -823,7 +822,7 @@ of the binding group in lambdas.
 Following \ref{h:alloc}, we require that this metric is non-positive to allow
 the lambda lift.
 
-\subsubsection{Implementation}
+\subsection{Implementation}
 
 \begin{figure}[t]
 
