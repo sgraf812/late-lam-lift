@@ -251,9 +251,8 @@ To generate code for nested functions like |g|, a typical compiler either
 applies lambda lifting or closure conversion.
 
 The Glasgow Haskell Compiler (GHC) chooses to do closure conversion
-\citep{stg}. In doing so, it allocates two closures for the program above: A
-\emph{static} closure for |f| with an empty environment and \emph{dynamic}
-closure for |g| with an environment on the heap, containing an entry for |a|.
+\citep{stg}. In doing so, it allocates a closure for |g| on the heap, with an
+environment containing an entry for |a|.
 
 Now imagine we lambda lifted |g| before closure conversion:
 
@@ -268,9 +267,8 @@ f a n = f (g_up a (n `mod` 2)) (n-1)
 The closure for |g| and the associated heap allocation completely vanished in
 favour of a few more arguments at the call site! The result looks much simpler.
 And indeed, in concert with the other optimisations within GHC, the above
-transformation makes |f| non-allocating\footnote{Implicitly ignoring runtime
-and static closure allocations, as for the rest of this paper.}, resulting in a
-speedup of 50\%.
+transformation makes |f| effectively non-allocating, resulting in a speedup of
+50\%.
 
 So should we just perform this transformation on any candidate? We have to
 disagree. Consider what would happen to the following program:
@@ -305,11 +303,9 @@ f a b n = f (g_up a b n) a (n `mod` 2)
 \end{code}
 
 The closure for |g| is gone, but |h| now closes over |n|, |a| and |b| instead
-of |n| and |g|\footnote{There's no need to close over a static closure like
-|g_up|.}. Worse, for a single allocation of |g|'s closure environment, we get
-two additional allocations of |h|'s closure environment on the recursive code
-path! Apart from making |f| allocate 10\% more, this also incurs a slowdown of
-more than 10\%.
+of |n| and |g|. Worse, for a single allocation of |g|'s closure, we get two
+additional allocations of |h|'s closure on the recursive code path! Apart from
+making |f| allocate 10\% more, this also incurs a slowdown of more than 10\%.
 
 This work is concerned with finding out when doing this transformation is
 beneficial to performance, providing a new angle on the interaction between
@@ -371,7 +367,7 @@ bindings and an expression to evaluate.
 
 Whenever there's an example in which the expression to evaluate is not closed,
 assume that free variables are bound in some outer context omitted for brevity.
-Examples may also compromise on adhearing to ANF for readability (regarding
+Examples may also compromise on adhering to ANF for readability (regarding
 giving all complex subexpressions a name, in particular), but we will point out
 the details if need be.
 
@@ -396,7 +392,7 @@ directly from \citet{fastcurry}.
 
 An informal treatment of operational behavior is still in order to express the
 consequences of lambda lifting. Since every application only has trivial
-arguments, all complex expressions had to be bound by a |let| in a prior
+arguments, all complex expressions had to be bound to a |let| in a prior
 compilation step. Consequently, heap allocation happens almost entirely at |let|
 bindings closing over free variables of their RHSs, with the exception of
 intermediate partial applications resulting from over- or undersaturated calls.
@@ -469,7 +465,7 @@ f_up x y 4 2
 
 The key difference to closure conversion is that there is no heap allocation at
 |f|'s former definition site anymore. But earlier we saw examples where doing
-this transformation does more harm than good. The plan is to transform
+this transformation does more harm than good, so the plan is to transform
 worthwhile cases with lambda lifting and leave the rest to closure conversion.
 
 \section{When to lift}
@@ -477,8 +473,8 @@ worthwhile cases with lambda lifting and leave the rest to closure conversion.
 \label{sec:analysis}
 
 Lambda lifting is always a sound transformation. The challenge is in
-identifying \emph{when} it is beneficial to apply it. This section will
-discuss operational consequences of our lambda lifting pass, clearing up the
+identifying \emph{when} it is beneficial to apply. This section will discuss
+operational consequences of our lambda lifting pass, clearing up the
 requirements for our transformation defined in \cref{sec:trans}. Operational
 considerations will lead to the introduction of multiple criteria for rejecting
 a lift, motivating a cost model for estimating impact on heap allocations.
@@ -492,12 +488,12 @@ occur free in |e|, has the following consequences:
   \item \label{s1} It replaces the |let| expression by its body.
   \item \label{s2} It creates a new top-level definition |f_up|.
   \item \label{s3} It replaces all occurrences of |f| in |e'| and |e| by an
-  application of the lifted top-level binding to its former free variables |x|
+  application of |f_up| to its former free variables |x|
   and |y|\footnote{This will also need to give a name to new non-atomic
   argument expressions mentioning |f|. We'll argue in \cref{ssec:op} that there
   is hardly any benefit in allowing these cases.}.
-  \item \label{s4} All non-top-level variables that occurred in the |let|
-  binding's right-hand side become parameter occurrences.
+  \item \label{s4} The former free variables |x| and |y| become parameters of
+  |f_up|.
 \end{enumerate}
 
 \subsection{Operational consequences}
@@ -532,8 +528,7 @@ unnecessary.
 heap for the |let| binding. On the other hand, \ref{s3} might increase or
 decrease heap allocation, which can be captured by a metric we call
 \emph{closure growth}. This is the essence of what guided our examples from the
-introduction. We'll look into a simpler example, occuring in some expression
-defining |x| and |y|:
+introduction. We'll look into a simpler example:
 
 \begin{minipage}{0.45\textwidth}
 \begin{code}
@@ -661,7 +656,7 @@ sharing, thus possibly duplicating work in each call to the lifted binding.
 \section{Estimating Closure Growth}
 \label{sec:cg}
 
-Of the criterions above, \ref{h:alloc} is quite important for predictable
+Of the criteria above, \ref{h:alloc} is quite important for predictable
 performance gains. It's also the most sophisticated, because it entails
 estimating closure growth.
 
@@ -697,8 +692,8 @@ and |y| each occupy a closure slot in turn. Of these, only |y| really
 contributes to closure growth, because |x| was already free in |g| before.
 
 This phenomenon is amplified whenever allocation happens under a lambda that is
-called multiple times (a \emph{multi-shot} lambda), as the following example
-demonstrates:
+called multiple times (a \emph{multi-shot} lambda \citep{card}), as the
+following example demonstrates:
 
 \begin{minipage}{0.45\textwidth}
 \begin{code}
@@ -723,8 +718,8 @@ in g 1 + g 2 + g 3
 \end{minipage}
 
 Is it still beneficial to lift |f|? Following our reasoning, we still save two
-slots from |f|'s closure, the closure of |g| doesn't grow and the closure |h|
-grows by one. We conclude that lifting |f| saves us one closure slot. But
+slots from |f|'s closure, the closure of |g| doesn't grow and the closure of
+|h| grows by one. We conclude that lifting |f| saves us one closure slot. But
 that's nonsense! Since |g| is called thrice, the closure for |h| also gets
 allocated three times relative to single allocations for the closures of |f|
 and |g|.
@@ -762,9 +757,9 @@ Here, the closure of |h_1| grows by one, whereas that of |h_2| shrinks by one,
 cancelling each other out. Hence there is no actual closure growth happening
 under the multi-shot binding |g| and |f| is good to lift.
 
-The solution is to denote closure growth in the (not quite max-plus) algebra
-$\zinf = \mathbb{Z} \cup \{\infty\}$ and account for positive closure growth
-under a multi-shot lambda by $\infty$.
+The solution is to denote closure growth in $(\zinf = \mathbb{Z} \cup
+\{\infty\}$ and account for positive closure growth under a multi-shot lambda
+by $\infty$.
 
 \subsection{Design}
 
@@ -872,11 +867,11 @@ them down one layer at a time by delegating to one helper function per
 syntactic sort. This makes the |let| rule itself nicely compositional, because
 it delegates most of its logic to $\cgb$.
 
-\cgb is concerned with measuring binding groups. Recall that added and removed
-set never overlap. The \growth component then accounts for allocating each
-closure of the binding group. Whenever a closure mentions one of the variables
-to be removed (\ie $\removed$, the binding group $\{\overline{g}\}$ to be
-lifted), we count the number of variables that are removed in $\nu$ and
+\cgb is concerned with measuring binding groups. Recall that the added and
+removed set never overlap. The \growth component then accounts for allocating
+each closure of the binding group. Whenever a closure mentions one of the
+variables to be removed (\ie $\removed$, the binding group $\{\overline{g}\}$
+to be lifted), we count the number of variables that are removed in $\nu$ and
 subtract them from the number of variables in $\added$ (\ie the required set of
 the binding group to lift $\absids'(g_1)$) that didn't occur in the closure
 before.
@@ -890,7 +885,7 @@ be to return $\infty$ whenever there is positive closure growth in a RHS and 0
 otherwise.
 
 That would be disastrous for analysis precision! Fortunately, GHC has access to
-cardinality information from its demand analyser \citep{dmd}. Demand
+cardinality information from its demand analyser \citep{card}. Demand
 analysis estimates lower and upper bounds ($\sigma$ and $\tau$ above) on how
 many times a RHS is entered relative to its defining expression.
 
@@ -911,7 +906,7 @@ includes allocated closures and their free variables, but also occurrences of
 multi-shot lambda abstractions. Additionally, there are the usual \enquote{glue
 operators}, such as sequence (\eg the case scrutinee is evaluated whenever one
 of the case alternatives is), choice (\eg one of the case alternatives is
-evaluated \emph{mutually exclusively}) and an identity (\ie literals don't
+evaluated mutually exclusively) and an identity (\ie literals don't
 allocate). This also helps to split the complex |let| case into more manageable
 chunks.
 
@@ -934,11 +929,11 @@ define a side-effecting function, \lift, recursively over the term structure.
 As its first argument, \lift takes an \expander $\absids$, which is a partial
 function from lifted binders to their required sets. These are the additional
 variables we have to pass at call sites after lifting. The expander is extended
-every time we decide to lambda lift a binding, it plays a similar role to the
-$E_f$ set in \citet{lam-lift}. We write $\dom{\absids}$ for the domain of
-$\absids$ and $\absids[\idx \mapsto S]$ to denote extension of the expander
-function, so that the result maps $\idx$ to $S$ and all other identifiers by
-delegating to $\absids$.
+every time we decide to lambda lift a binding, its role is similar to the $E_f$
+set in \citet{lam-lift}. We write $\dom{\absids}$ for the domain of $\absids$
+and $\absids[\idx \mapsto S]$ to denote extension of the expander function, so
+that the result maps $\idx$ to $S$ and all other identifiers by delegating to
+$\absids$.
 
 The second argument is the expression that is to be lambda lifted. A call to
 \lift results in an expression that no longer contains any bindings that were
@@ -1094,9 +1089,9 @@ actually need to be part of the same binding group, even though they are part
 of the same strongly-connected component of the call graph. The only truly
 recursive function in that program is |f|. All other functions would be nested
 |let| bindings (\cf the right column of the \cref{fig:example}) after GHC's
-middleend transformation, possibly in lexically separate subtrees. The example
+middleend transformations, possibly in lexically separate subtrees. The example
 is of \citet{optimal-lift} and served as a prime example in showing the
-non-optimality of \citet{fast-lift}.
+non-optimality of the call graph-based algorithm in \citet{fast-lift}.
 
 Generally, lexical scoping prevents coalescing a recursive group with their
 dominators in the call graph if the dominators define variables that occur in
@@ -1336,9 +1331,9 @@ convention on AMD64 was a good call.
 \citet{lam-lift} was the first to conceive lambda lifting as a code
 generation scheme for functional languages. We deviate from the original
 transformation in that we regard it as an optimisation pass by only applying it
-selectively.
+selectively and default to closure conversion for code generation.
 
-Johnsson's constructed the required set of free variables for each binding by
+Johnsson constructed the required set of free variables for each binding by
 computing the smallest solution of a system of set inequalities. Although this
 runs in $\mathcal{O}(n^3)$ time, there were several attempts to achieve its
 optimality (wrt. the minimal size of the required sets) with better
@@ -1411,13 +1406,12 @@ optimisation opportunity.
 We find there's a lack of substantiated performance comparisons of closure
 conversion to lambda lifting for code generation on modern machine
 architectures. It seems lambda lifting has fallen out of fashion: GHC and the
-OCaml compiler both seem to do closure conversion. The compiler for the Lean
-theorem proving language makes use of lambda lifting, but it's unclear if this
-is just for its conceptual simplicity.
+OCaml compiler both seem to do closure conversion. The recent backend of the
+Lean compiler makes use of lambda lifting for its conceptual simplicity.
 
 \section{Conclusion}
 
-We presented the selective lambda lifting as an optimisation on STG terms and
+We presented selective lambda lifting as an optimisation on STG terms and
 provided an implementation in the Glasgow Haskell Compiler. The heuristics that
 decide when to reject a lifting opportunity were derived from concrete
 operational considerations. We assessed the effectiveness of this
@@ -1440,7 +1434,7 @@ for more realistic and less conservative estimates.
   %% extraction tools.
   We'd like to thank Martin Hecker, Maximilian Wagner, Sebastian Ullrich and
   Philipp Krüger for their proofreading. We are grateful for the pioneering
-  work of Nicolas Frisby for this thesis.
+  work of Nicolas Frisby in this area.
 \end{acks}
 
 \makeatletter
