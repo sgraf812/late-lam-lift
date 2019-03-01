@@ -189,7 +189,7 @@ lifting is no longer necessary to generate machine code.
 We propose to revisit selective lambda lifting in this context as an optimising
 code generation strategy and conceive heuristics to identify beneficial lifting
 opportunities. We give a static analysis for estimating impact on heap
-allocations of a lifting decision. Perfomance measurements of our
+allocations of a lifting decision. Performance measurements of our
 implementation within the Glasgow Haskell Compiler on a large corpus of Haskell
 benchmarks suggest modest speedups.
 \end{abstract}
