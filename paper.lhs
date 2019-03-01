@@ -396,7 +396,7 @@ Put plainly: If we manage to get rid of a |let| binding, we get rid of one
 source of heap allocation since there is no closure to allocate during closure
 conversion.
 
-\subsection{Lambda lifting \vs Closure conversion}
+\subsection{Lambda Lifting \vs Closure Conversion}
 
 The trouble with nested functions is that nobody has come up with concrete,
 efficient computing architectures that can cope with them natively. Compilers
@@ -474,7 +474,7 @@ requirements for our transformation defined in \cref{sec:trans}. Operational
 considerations will lead to the introduction of multiple criteria for rejecting
 a lift, motivating a cost model for estimating impact on heap allocations.
 
-\subsection{Syntactic consequences}
+\subsection{Syntactic Consequences}
 
 Deciding to lambda lift a binding |let f = \a b c -> e in e'| where |x| and |y|
 occur free in |e|, has the following consequences:
@@ -491,7 +491,7 @@ occur free in |e|, has the following consequences:
   |f_up|.
 \end{enumerate}
 
-\subsection{Operational consequences}
+\subsection{Operational Consequences}
 \label{ssec:op}
 
 We now ascribe operational symptoms to combinations of syntactic effects. These
@@ -563,7 +563,7 @@ known function.
 Estimation of closure growth is crucial to achieving predictable results. We
 discuss this further in \cref{sec:cg}.
 
-\paragraph{Calling Convention.} \ref{s4} means that more arguments have to be
+\paragraph{Calling convention.} \ref{s4} means that more arguments have to be
 passed. Depending on the target architecture, this entails more stack accesses
 and/or higher register pressure. Thus
 
@@ -1175,8 +1175,7 @@ in \cref{tbl:ll}.
 It shows that there was no benchmark that increased in heap allocations, for a
 total reduction of 0.9\%. This proves we succeeded in designing our analysis to
 be conservative with respect to allocations: Our transformation turns heap
-allocation into possible register and stack allocation without a single
-regression.
+allocation into possible register and stack usage without a single regression.
 
 Turning our attention to runtime measurements, we see that a total reduction of
 0.7\% was achieved. Although exploiting the correlation with closure growth
