@@ -1085,7 +1085,7 @@ of the same strongly-connected component of the call graph. The only truly
 recursive function in that program is |f|. All other functions would be nested
 |let| bindings (\cf the right column of the \cref{fig:example}) after GHC's
 middleend transformations, possibly in lexically separate subtrees. The example
-is of \citet{optimal-lift} and served as a prime example in showing the
+is due to \citeauthor{optimal-lift} and served as a prime example in showing the
 non-optimality of the call graph-based algorithm in \citet{fast-lift}.
 
 Generally, lexical scoping prevents coalescing a recursive group with their
@@ -1161,7 +1161,7 @@ performance on the \texttt{nofib} benchmark suite \citep{nofib} against a GHC
 release\footnote{\url{https://github.com/ghc/ghc/tree/0d2cdec78471728a0f2c487581d36acda68bb941}}\footnote{Measurements
 were conducted on an Intel Core i7-6700 machine running Ubuntu 16.04.}.
 
-We will first look at how our chosen parameterisation (\eg the optimisation
+We will first look at how our chosen parameterisation (\ie the optimisation
 with all heuristics activated as advertised) performs in comparison to the
 baseline. Subsequently, we will justify the choice by comparing with other
 parameterisations that selectively drop or vary the heuristics of
