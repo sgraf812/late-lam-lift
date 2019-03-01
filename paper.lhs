@@ -752,7 +752,7 @@ Here, the closure of |h_1| grows by one, whereas that of |h_2| shrinks by one,
 cancelling each other out. Hence there is no actual closure growth happening
 under the multi-shot binding |g| and |f| is good to lift.
 
-The solution is to denote closure growth in $(\zinf = \mathbb{Z} \cup
+The solution is to denote closure growth in $\zinf = \mathbb{Z} \cup
 \{\infty\}$ and account for positive closure growth under a multi-shot lambda
 by $\infty$.
 
