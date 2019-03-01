@@ -162,11 +162,22 @@
   \institution{Karlsruhe Institute of Technology}
   %\department{Institute for Program Structures and Data Organization}
   %\streetaddress{Am Fasanengarten 5}
-  %\city{Karlsruhe}
+  \city{Karlsruhe}
   %\postcode{76131}
   \country{Germany}
 }
 \email{sebastian.graf@@kit.edu}
+
+\author{Simon Peyton Jones}
+\affiliation{%
+  \institution{Microsoft Research}
+  %\department{}
+  %\streetaddress{}
+  \city{Cambridge}
+  %\postcode{}
+  \country{UK}
+}
+\email{simonpj@@microsoft.com}
 
 \begin{abstract}
 Lambda lifting is a well-known transformation, traditionally employed for
