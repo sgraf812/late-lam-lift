@@ -241,14 +241,12 @@ f a n = f (g (n `mod` 2)) (n-1)
     g 0 = a
     g n = 1 + g (n-1)
 \end{code}
-
+\noindent
 To generate code for nested functions like |g|, a typical compiler either
 applies lambda lifting or closure conversion.
-
 The Glasgow Haskell Compiler (GHC) chooses to do closure conversion
 \citep{stg}. In doing so, it allocates a closure for |g| on the heap, with an
 environment containing an entry for |a|.
-
 Now imagine we lambda lifted |g| before closure conversion:
 
 \begin{code}
@@ -258,7 +256,7 @@ g_up a n = 1 + g_up a (n-1)
 f a 0 = a
 f a n = f (g_up a (n `mod` 2)) (n-1)
 \end{code}
-
+\noindent
 The closure for |g| and the associated heap allocation completely vanished in
 favour of a few more arguments at the call site! The result looks much simpler.
 And indeed, in concert with the other optimisations within GHC, the above
@@ -280,7 +278,7 @@ f a b n = f (g n) a (n `mod` 2)
       where
         h = g (n-1)
 \end{code}
-
+\noindent
 Because of laziness, this will allocate a thunk for |h|. Closure conversion
 will then allocate an environment for |h| on the heap, closing over |g|. Lambda
 lifting yields:
@@ -296,14 +294,16 @@ f a b 0 = a
 f a b 1 = b
 f a b n = f (g_up a b n) a (n `mod` 2)
 \end{code}
-
+\noindent
 The closure for |g| is gone, but |h| now closes over |n|, |a| and |b| instead
 of |n| and |g|. Worse, for a single allocation of |g|'s closure, we get two
 additional allocations of |h|'s closure on the recursive code path! Apart from
 making |f| allocate 10\% more, this also incurs a slowdown of more than 10\%.
 
-This work is concerned with finding out when doing this transformation is
-beneficial to performance, providing a new angle on the interaction between
+So lambda lifting is sometimes beneficial, and sometimes harmful: we should
+do it selectively.
+This work is concerned with identifying exactly \emph{when} lambda lifting
+improves performance, providing a new angle on the interaction between
 lambda lifting and closure conversion. These are our contributions:
 
 \begin{itemize}
