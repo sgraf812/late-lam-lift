@@ -57,11 +57,6 @@
 \usepackage{hyperref}
 \usepackage{cleveref}
 \usepackage{csquotes}
-\hypersetup{%
-  pdfauthor={Sebastian Graf},
-  pdftitle={Selective Lambda Lifting},
-  hidelinks=true,
-}
 \usepackage{mdframed}
 
 \newcommand{\cf}{cf.\@@\xspace}
