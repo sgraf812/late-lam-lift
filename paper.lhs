@@ -1003,7 +1003,7 @@ wrapping call sites in partial applications binding the complex arguments.
 
 \subsection{Let Bindings}
 
-Hardly surprising, the meat of the transformation
+Hardly surprisingly, the meat of the transformation
 hides in the handling of |let| bindings. It is at this point that some
 heuristic (that of \cref{sec:analysis}, for example) decides whether to lambda
 lift the binding group $bs$ wholly or not. For this decision, it has access to
