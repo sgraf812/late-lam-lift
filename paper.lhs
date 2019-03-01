@@ -1035,7 +1035,7 @@ right-hand sides of the bindings.
 \subsection{Regarding Optimality}
 \label{ssec:opt}
 
-\Citet{lam-lift} constructed the set of extraneuous parameters for each binding
+\Citet{lam-lift} constructed the set of extraneous parameters for each binding
 by computing the smallest solution of a system of set inequalities. Although
 this runs in $\mathcal{O}(n^3)$ time, there were several attempts to achieve
 its optimality wrt. the minimal size of the required sets with better
