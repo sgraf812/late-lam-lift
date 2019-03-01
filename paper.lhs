@@ -405,7 +405,7 @@ One way of doing so is in performing \emph{closure conversion}, where
 references to free variables are lowered as field accesses on a record
 containing all free variables of the function, the \emph{closure environment}.
 The environment is passed as an implicit parameter to the function body, which
-in turns is insensitive to lexical scope and can be floated to top-level. After
+in turn is insensitive to lexical scope and can be floated to top-level. After
 this lowering, all functions are then regarded as \emph{closures}: A pair of a
 code pointer and an environment.
 
@@ -615,7 +615,7 @@ apply function \citep{fastcurry}, incurring a major slow-down.
   \item \label{h:known} Don't lift a binding when doing so would turn known calls into unknown calls
 \end{introducecrit}
 
-\paragraph{Sharing.} Consider what happens when we lambda lift a updatable
+\paragraph{Sharing.} Consider what happens when we lambda lift an updatable
 binding, like a thunk\footnote{Assume that all nullary bindings are memoised.}:
 
 \begin{minipage}{0.45\textwidth}
@@ -636,7 +636,7 @@ in map addT [1..n]
 \end{code}
 \end{minipage}
 
-The addition within the |t| prior to lifting will be computed only once for each
+The addition within |t| prior to lifting will be computed only once for each
 complete evaluation of the expression. Compare this to the lambda lifted
 version, which will re-evaluate |t| $n$ times!
 
@@ -685,8 +685,9 @@ replaced by the free variables of its RHS. Replacing |f| by the top-level
 and |y| each occupy a closure slot in turn. Of these, only |y| really
 contributes to closure growth, because |x| was already free in |g| before.
 
-This phenomenon is amplified whenever allocation happens under a multi-shot
-lambda, as the following example demonstrates:
+This phenomenon is amplified whenever allocation happens under a lambda that is
+called multiple times (a \emph{multi-shot} lambda), as the following example
+demonstrates:
 
 \begin{minipage}{0.45\textwidth}
 \begin{code}
