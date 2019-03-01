@@ -1155,7 +1155,7 @@ f x y =
 \section{Evaluation}
 \label{sec:eval}
 
-In order to assess effectiveness of our new optimisation, we measured the
+In order to assess the effectiveness of our new optimisation, we measured the
 performance on the \texttt{nofib} benchmark suite \citep{nofib} against a GHC
 8.6.1
 release\footnote{\url{https://github.com/ghc/ghc/tree/0d2cdec78471728a0f2c487581d36acda68bb941}}\footnote{Measurements
