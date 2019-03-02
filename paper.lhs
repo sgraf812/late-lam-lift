@@ -296,9 +296,10 @@ f a b n = f (g_up a b n) a (n `mod` 2)
 \end{code}
 \noindent
 The closure for |g| is gone, but |h| now closes over |n|, |a| and |b| instead
-of |n| and |g|. Worse, for a single allocation of |g|'s closure, we get two
-additional allocations of |h|'s closure on the recursive code path! Apart from
-making |f| allocate 10\% more, this also incurs a slowdown of more than 10\%.
+of |n| and |g|. Moreover, this |h|-closure is allocated for each iteration of
+the loop, so we have reduced allocation by one closure for |g|, but increased
+allocation by one word in each of N allocations of |h|. Apart from making |f|
+allocate 10\% more, this also incurs a slowdown of more than 10\%.
 
 So lambda lifting is sometimes beneficial, and sometimes harmful: we should
 do it selectively.
