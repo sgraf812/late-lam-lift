@@ -1172,10 +1172,11 @@ parameterisations that selectively drop or vary the heuristics of
 The results of comparing our chosen configuration with the baseline can be seen
 in \cref{tbl:ll}.
 
-It shows that there was no benchmark that increased in heap allocations, for a
-total reduction of 0.9\%. This proves we succeeded in designing our analysis to
-be conservative with respect to allocations: Our transformation turns heap
-allocation into possible register and stack usage without a single regression.
+We remark that our optimisation did not increase heap allocations in any
+benchmark, for a total reduction of 0.9\%. This proves we succeeded in
+designing our analysis to be conservative with respect to allocations: Our
+transformation turns heap allocation into possible register and stack usage
+without a single regression.
 
 Turning our attention to runtime measurements, we see that a total reduction of
 0.7\% was achieved. Although exploiting the correlation with closure growth
@@ -1186,11 +1187,11 @@ while runtime was barely affected. However, at a few hundred kilobytes,
 hide somewhere in the \texttt{base} library. Conversely, allocations of
 \texttt{lambda} hardly changed, yet it sped up considerably.
 
-In \texttt{queens}, 18\% less allocations did only lead to a mediocre 0.5\%.
-A local function closing over three variables was lifted out of a hot loop to
-great effect on allocations, barely affecting runtime. We believe this is due
-to the native code generator of GHC, because when compiling with the LLVM
-backend we measured speedups of roughly 5\%.
+In \texttt{queens}, 18\% fewer allocations did only lead to a mediocre 0.5\%.
+Here, a local function closing over three variables was lifted out of a hot
+loop to great effect on allocations, barely affecting runtime. We believe this
+is due to the native code generator of GHC, because when compiling with the
+LLVM backend we measured speedups of roughly 5\%.
 
 The same goes for \texttt{minimax}: We couldn't reproduce the runtime
 regressions with the LLVM backend.
@@ -1255,7 +1256,7 @@ of execution frequency \citep{static-prof} could help here, but GHC
 does not currently offer such information.
 
 The mean difference in runtime results is surprisingly insignificant. That
-rises the question whether closure growth estimation is actually worth the
+raises the question whether closure growth estimation is actually worth the
 additional complexity. We argue that unpredictable increases in allocations
 like in \texttt{wheel-sieve1} are to be avoided: It's only a matter of time
 until some program would trigger exponential worst-case behavior.
@@ -1348,10 +1349,10 @@ parameter or what the worker-wrapper transformation \citep{ww} achieves. The
 situation is a little different to performing the worker-wrapper split in that
 there's no need for strictness or usage analysis to be involved. Similar to
 type class dictionaries, there's no divergence hiding in closure records. At
-the same time, closure records are defined with the sole purpose to carry all
-free variables for a particular function, hence a prior free variable analysis
-guarantees that the closure record will only contain free variables that are
-actually used in the body of the function.
+the same time, closure records are defined with the sole purpose of carrying
+all free variables for a particular function, hence a prior free variable
+analysis guarantees that the closure record will only contain free variables
+that are actually used in the body of the function.
 
 \citet{stg} anticipates the effects of lambda lifting in the context of the
 STG machine, which performs closure conversion for code generation. He comes to
@@ -1367,16 +1368,15 @@ happens prior to closure conversion.
 %Interestingly, lambda lifting binders that occur as parameters to higher-order
 %functions is combined with specialisation of those higher-order functions.
 
-Our selective lambda lifting scheme proposed follows an all or nothing
-approach: Either the binding is lifted to top-level or it is left untouched.
-The obvious extension to this approach is to only abstract out \emph{some} free
-variables. If this would be combined with a subsequent float out pass,
-abstracting out the right variables (\ie those defined at the deepest level)
-could make for significantly less allocations when a binding can be floated out
-of a hot loop.  This is very similar to performing lambda lifting and then
-cautiously performing block sinking as long as it leads to beneficial
-opportunities to drop parameters, implementing a flexible lambda dropping pass
-\citep{lam-drop}.
+Our selective lambda lifting scheme follows an all or nothing approach: Either
+the binding is lifted to top-level or it is left untouched.  The obvious
+extension to this approach is to only abstract out \emph{some} free variables.
+If this would be combined with a subsequent float out pass, abstracting out the
+right variables (\ie those defined at the deepest level) could make for
+significantly fewer allocations when a binding can be floated out of a hot
+loop. This is very similar to performing lambda lifting and then cautiously
+performing block sinking as long as it leads to beneficial opportunities to
+drop parameters, implementing a flexible lambda dropping pass \citep{lam-drop}.
 
 Lambda dropping \citep{lam-drop}, or more specifically parameter dropping,
 has a close sibling in GHC in the form of the static argument transformation
@@ -1390,12 +1390,12 @@ exploited. Other than that, SAT turns unknown into known calls, but in
 
 In \cref{sec:eval} we concluded that our closure growth heuristic was too
 conservative. In general, lambda lifting STG terms pushes allocations from
-definition sites into any closures that nest around call sites. If only
-closures on cold code paths grow, doing the lift could be beneficial. Weighting
-closure growth by an estimate of execution frequency \citep{static-prof} could
-help here. Such static profiles would be convenient in a number of places, for
-example in the inliner or to determine viability of exploiting a costly
-optimisation opportunity.
+definition sites into any closures of |let| bindings that nest around call
+sites.  If only closures on cold code paths grow, doing the lift could be
+beneficial.  Weighting closure growth by an estimate of execution frequency
+\citep{static-prof} could help here. Such static profiles would be convenient
+in a number of places, for example in the inliner or to determine viability of
+exploiting a costly optimisation opportunity.
 
 We find there's a lack of substantiated performance comparisons of closure
 conversion to lambda lifting for code generation on modern machine
@@ -1409,9 +1409,9 @@ We presented selective lambda lifting as an optimisation on STG terms and
 provided an implementation in the Glasgow Haskell Compiler. The heuristics that
 decide when to reject a lifting opportunity were derived from concrete
 operational considerations. We assessed the effectiveness of this
-evidence-based approach on a large corpus of Haskell benchmarks and concluded
-that average Haskell programs sped up by 0.7\% in the geometric mean and
-reliably reduced the number of allocations.
+evidence-based approach on a large corpus of Haskell benchmarks to conclude
+that our optimisation sped up average Haskell programs by 0.7\% in the
+geometric mean and reliably reduced the number of allocations.
 
 One of our main contributions was a conservative estimate of closure growth
 resulting from a lifting decision. Although prohibiting any closure growth
