@@ -1382,10 +1382,20 @@ drop parameters, implementing a flexible lambda dropping pass \citep{lam-drop}.
 Lambda dropping \citep{lam-drop}, or more specifically parameter dropping,
 has a close sibling in GHC in the form of the static argument transformation
 \citep{santos} (SAT). As such, the new lambda lifter is pretty much undoing
-SAT. We believe that SAT is mostly an enabling transformation for the middleend
-and by the time our lambda lifter runs, these opportunities will have been
-exploited. Other than that, SAT turns unknown into known calls, but in
-\ref{h:known} we make sure that we don't undo that.
+SAT. We believe that SAT is mostly an enabling transformation for the middleend,
+useful for specialising functions for concrete static arguments.
+By the time our lambda lifter runs, these opportunities will have been
+exploited. Due to its specialisation effect, SAT turns unknown into known
+calls, but in \ref{h:known} we make sure not to undo that.
+
+SAT has been known to yield mixed results for lack of appropriate heuristics
+deciding when to apply
+it\footnote{\url{https://gitlab.haskell.org/ghc/ghc/issues/9374}}. The
+challenge is in convincing the inliner to always inline a transformed function,
+otherwise we end up with an operationally inferior form that cannot be
+optimised any further by call-pattern specialisation \citep{spec-constr}, for
+example. In this context, selective lambda lifting ameliorates the operational
+situation, but can't do much about the missed specialisation opportunity.
 
 \subsection{Future Work}
 
