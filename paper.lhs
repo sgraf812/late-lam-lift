@@ -1228,7 +1228,6 @@ regressions with the LLVM backend.
 \end{minipage}
 \end{figure}
 
-
 \subsection{Exploring the design space}
 
 Now that we have established the effectiveness of late lambda lifting, it's
@@ -1438,7 +1437,7 @@ for more realistic and less conservative estimates.
   %% acknowledge financial support and will be used by metadata
   %% extraction tools.
   We'd like to thank Martin Hecker, Maximilian Wagner, Sebastian Ullrich and
-  Philipp Krüger for their proofreading. We are grateful for the pioneering
+  Philipp Kr\"uger for their proofreading. We are grateful for the pioneering
   work of Nicolas Frisby in this area.
 \end{acks}
 
