@@ -1,7 +1,7 @@
 %% For double-blind review submission, w/o CCS and ACM Reference (max submission space)
 %\documentclass[acmsmall,review,anonymous,natbib=false]{acmart}\settopmatter{printfolios=true,printccs=false,printacmref=false}
 %% For double-blind review submission, w/ CCS and ACM Reference
-\documentclass[acmsmall,review,anonymous]{acmart}\settopmatter{printfolios=true}
+\documentclass[acmsmall,review]{acmart}\settopmatter{printfolios=true}
 %% For single-blind review submission, w/o CCS and ACM Reference (max submission space)
 %\documentclass[acmsmall,review]{acmart}\settopmatter{printfolios=true,printccs=false,printacmref=false}
 %% For single-blind review submission, w/ CCS and ACM Reference
