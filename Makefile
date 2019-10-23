@@ -27,5 +27,15 @@ $(BASE).pdf: $(BUILD)/$(BASE).pdf
 
 .PHONY: clean
 
+arxiv: $(BUILD)/$(BASE).tex $(BUILD)/$(BASE).bbl tables/base.tex tables/c2.tex tables/c3.tex tables/c4.tex
+	@rm -rf arxiv.zip
+	@mkdir -p arxiv/tables
+	cp $(BUILD)/$(BASE).tex $(BUILD)/$(BASE).bbl arxiv
+	cp tables/base.tex tables/c2.tex tables/c3.tex tables/c4.tex arxiv/tables
+	cd arxiv && zip -r ../arxiv.zip .; cd ..
+	@rm -rf arxiv
+
 clean:
 	rm -rf build
+	rm -rf arxiv
+	rm -f arxiv.zip

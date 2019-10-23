@@ -54,7 +54,7 @@
 \usepackage{xspace}
 \usepackage[disable]{todonotes}
 \usepackage{enumitem}
-\usepackage{hyperref}
+% \usepackage{hyperref} % included in acmart
 \usepackage{cleveref}
 \usepackage{csquotes}
 \usepackage{mdframed}
