@@ -30,8 +30,12 @@ $(BASE).pdf: $(BUILD)/$(BASE).pdf
 arxiv: $(BUILD)/$(BASE).tex $(BUILD)/$(BASE).bbl tables/base.tex tables/c2.tex tables/c3.tex tables/c4.tex
 	@rm -rf arxiv.zip
 	@mkdir -p arxiv/tables
-	cp $(BUILD)/$(BASE).tex $(BUILD)/$(BASE).bbl arxiv
+	@# We need to convince arxiv to use pdflatex
+	echo "\pdfoutput=1" | cat - $(BUILD)/$(BASE).tex > arxiv/$(BASE).tex
+	cp $(BUILD)/$(BASE).bbl arxiv
 	cp tables/base.tex tables/c2.tex tables/c3.tex tables/c4.tex arxiv/tables
+	@# Also arxiv uses hypertex, which doesn't really work for us because we are using cleveref
+	echo "nohypertex" > arxiv/00README.XXX
 	cd arxiv && zip -r ../arxiv.zip .; cd ..
 	@rm -rf arxiv
 

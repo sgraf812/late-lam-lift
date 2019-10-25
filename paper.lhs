@@ -1,7 +1,7 @@
 %% For double-blind review submission, w/o CCS and ACM Reference (max submission space)
 %\documentclass[acmsmall,review,anonymous,natbib=false]{acmart}\settopmatter{printfolios=true,printccs=false,printacmref=false}
 %% For double-blind review submission, w/ CCS and ACM Reference
-\documentclass[acmsmall,review]{acmart}\settopmatter{printfolios=true}
+\documentclass[acmsmall]{acmart}\settopmatter{printfolios=true}
 %% For single-blind review submission, w/o CCS and ACM Reference (max submission space)
 %\documentclass[acmsmall,review]{acmart}\settopmatter{printfolios=true,printccs=false,printacmref=false}
 %% For single-blind review submission, w/ CCS and ACM Reference
@@ -54,7 +54,7 @@
 \usepackage{xspace}
 \usepackage[disable]{todonotes}
 \usepackage{enumitem}
-% \usepackage{hyperref} % included in acmart
+% \usepackage[bookmarksnumbered,unicode]{hyperref} % included in acmart
 \usepackage{cleveref}
 \usepackage{csquotes}
 \usepackage{mdframed}
